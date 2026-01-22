@@ -1,5 +1,5 @@
-const version = require('betterSave/version');
-const ui = require('betterSave/game/ui');
+const version = require('bettersave/version');
+const ui = require('bettersave/game/ui');
 
 print('BetterSave v' + version.major + '.' + version.minor + '.' + version.bugFix);
 
