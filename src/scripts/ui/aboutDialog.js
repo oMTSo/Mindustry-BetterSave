@@ -1,5 +1,6 @@
 // 关于对话框：展示模组版本、描述和图标信息。
 const version = require('bettersave/tools/version');
+const myIcons = require('bettersave/ui/tools/icons');
 
 let aboutDialog = null;
 
@@ -13,6 +14,7 @@ function makeColor(txt, color) {
 
 exports.init = () => {
     aboutDialog = new Packages.mindustry.ui.dialogs.BaseDialog('@about.title');
+    myIcons.init();
 
     aboutDialog.addCloseButton();
 
@@ -20,7 +22,7 @@ exports.init = () => {
         aboutDialog.cont.clear();
 
         let img = new Packages.mindustry.ui.BorderImage();
-        img.setDrawable(Icon.save);
+        img.setDrawable(Icon.icons.get("mainIcon"));
         img.border(Packages.mindustry.graphics.Pal.accent);
         aboutDialog.cont.add(img).size(102);
 

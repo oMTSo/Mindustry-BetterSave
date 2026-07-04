@@ -1,9 +1,10 @@
 {
 	"name": "bettersave",
 	"displayName": "BetterSave",
-	"author": "MTS",
 	"description": "A Mindustry mod, featuring enhanced saving function and simpler cloud save function",
-	"version": "0.0.1",
+	"subtitle": "Enhanced saving function and simpler cloud save function",
+	"author": "MTS",
+	"version": "0.2.0",
 	"hidden": true,
 	"minGameVersion": 136,
 	"repo": "MTS/Mindustry-BetterSave"

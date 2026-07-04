@@ -62,7 +62,7 @@ const cloud = require('bettersave/cloud/index');
 1. 主线程保存当前游戏状态并生成一份 `cloudsave` 本地 `.smsf` 备份。
 2. 后台线程读取远端 `meta/sync.json`，如果远端比本地上次同步更新，则回主线程提示“本地过期”。
 3. 用户确认覆盖后，后台线程扫描本地 `betterSave/config`、`betterSave/saves`、`betterSave/players`。
-4. 过滤 `config/cloudsave.json` 和 `config/sync.json`，避免上传本地 token 和本地状态文件。
+4. 过滤 `config/cloudsave.json`、`config/sync.json` 和 `config/editor.json`，避免上传本地 token、本地状态文件和编辑器临时清理状态。
 5. 清洗玩家 `.smsf` 中历史残留的 `../bettersave/config/cloudsave.json`。
 6. 生成远端 `meta/sync.json`。
 7. 逐个创建 GitHub blob。
@@ -113,6 +113,16 @@ const cloud = require('bettersave/cloud/index');
 - 上传前：如果远端 `updatedAt` 大于本地 `updatedAt`，提示“本地过期”。
 - 下载前：如果本地 `updatedAt` 大于远端 `updatedAt`，或本地同步文件在 `localSyncedAt` 后被修改，提示“云端过期”。
 - 启动时：后台只读取远端 `meta/sync.json`，只有远端 `updatedAt` 大于本地 `updatedAt` 时才弹下载提示。
+- `config/editor.json` 是地图编辑器临时文件清理状态，启动时可能被 `editor.removeFiles()` 重写，不应参与上传或本地更新时间判断。
+
+测试按钮调用 `cloud.inspectSyncAsync`。GitHub API 连通时显示“测试成功”，并展示本地存档时间、云端存档时间、本地设备、云端设备和结论；API 失败时仍显示“测试失败”。
+
+测试结论：
+
+- `本地过期`：云端 `updatedAt` 比本地 `updatedAt` 新。
+- `云端过期`：本地 `updatedAt` 比云端新，或本地同步文件在 `localSyncedAt` 后修改。
+- `本地和云端都有更新`：云端比本地同步基准新，同时本地也检测到未上传修改。
+- `本地和云端一致`：没有检测到任一侧更新。
 
 ## GitHub API 注意事项
 
@@ -158,6 +168,7 @@ cloud.uploadSavesAsync({ force: false }, onSuccess, onError, onConflict);
 cloud.downloadSavesAsync({ force: false }, onSuccess, onError, onConflict);
 cloud.clearCloudAsync(onSuccess, onError);
 cloud.testAsync(conf, onSuccess, onError);
+cloud.inspectSyncAsync(conf, onSuccess, onError);
 cloud.checkRemoteUpdateAsync(onSuccess, onError);
 ```
 
@@ -176,6 +187,7 @@ cloud.checkRemoteUpdateAsync(onSuccess, onError);
 已实现的防护：
 
 - `cloud/localSnapshot.js` 上传时跳过 `config/cloudsave.json`。
+- `cloud/localSnapshot.js` 上传和本地更新时间判断时跳过 `config/sync.json` 和 `config/editor.json`。
 - 上传玩家 `.smsf` 前会过滤历史残留的 `../bettersave/config/cloudsave.json`。
 - 下载替换本地配置时会保留本机的 `config/cloudsave.json`。
 
