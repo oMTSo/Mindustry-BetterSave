@@ -1,4 +1,4 @@
-
+// 通用列表对话框组件：封装带图标、文字和操作按钮的列表项。
 const ui = require("bettersave/ui/ui");
 
 exports.init = () => {
@@ -13,8 +13,6 @@ exports.init = () => {
 
     ret.dialog = new Packages.mindustry.ui.dialogs.BaseDialog("");
     ret.dialog.addCloseButton();
-
-    // # methods
 
     ret.rebuild = () => {
         if (ret.dialog == null) return;
@@ -50,14 +48,11 @@ exports.init = () => {
         ret.dialog.title.setText(txt);
     };
 
-    // # add content
-
     ret.button = (txt, icon, f) => {
         if (ret.dialog == null) return;
         return ret.dialog.buttons.button(txt, icon, f);
     };
 
-    // title:string, txt:string, icon:Icon, clicked:function, iconGroup:[{icon:Icon,clicked:function}]
     ret.listCase = (title, txt, icon, clicked, iconGroup) => {
         if (ret.pane == null) return;
         ui.button(ret.pane, (b) => {
@@ -97,8 +92,6 @@ exports.init = () => {
         ret.pane.row();
         return o;
     };
-
-    // # add listener
 
     ret.rebuilt = (f) => {
         ret.onRebuildFunc = f;

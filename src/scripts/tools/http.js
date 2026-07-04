@@ -1,4 +1,4 @@
-
+// HTTP 客户端：封装 Arc GET/POST，并在 POST 失败时使用 Java URLConnection 兜底。
 const defaultUA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36';
 
 function checkUA(header) {
@@ -68,15 +68,7 @@ function invokePublic(className, name, paramNames, target, args) {
     return findPublicMethod(className, name, paramNames).invoke(target, arr);
 }
 
-function forceRequestMethod(conn, method) {
-    try {
-        invokePublic('java.net.HttpURLConnection', 'setRequestMethod', ['java.lang.String'], conn, [new java.lang.String(method)]);
-    } catch (e) {
-        if (method !== 'POST') throw e;
-    }
-}
-
-function requestWithUrlConnection(method, url, header, body) {
+function requestPostWithUrlConnection(url, header, body) {
     let ret = {
         body: [],
         code: 0,
@@ -88,7 +80,6 @@ function requestWithUrlConnection(method, url, header, body) {
     invokePublic('java.net.URLConnection', 'setConnectTimeout', ['int'], conn, [new java.lang.Integer(3600000)]);
     invokePublic('java.net.URLConnection', 'setReadTimeout', ['int'], conn, [new java.lang.Integer(3600000)]);
     invokePublic('java.net.HttpURLConnection', 'setFixedLengthStreamingMode', ['int'], conn, [new java.lang.Integer(body.length)]);
-    forceRequestMethod(conn, method);
 
     let h = checkUA(header);
     for (let i in h) {
@@ -127,26 +118,20 @@ function requestWithUrlConnection(method, url, header, body) {
     return ret;
 }
 
-function requestWithBody(methodName, arcMethod, url, header, body) {
+function requestPost(url, header, body) {
     try {
-        if (typeof arcMethod != 'undefined') {
-            let res = requestWithArcBody(arcMethod, url, header, body);
-            if (res.code != 0) return res;
-            print('Arc HTTP returned status 0 for ' + methodName + ', retrying with Java HTTP.');
-        }
+        let res = requestWithArcBody(Packages.arc.util.Http.HttpMethod.POST, url, header, body);
+        if (res.code != 0) return res;
+        print('Arc HTTP returned status 0 for POST, retrying with Java HTTP.');
     } catch (e) {
         print(e);
     }
 
-    return requestWithUrlConnection(methodName, url, header, body);
+    return requestPostWithUrlConnection(url, header, body);
 }
 
 exports.post = (url, header, body) => {
-    return requestWithBody('POST', Packages.arc.util.Http.HttpMethod.POST, url, header, body);
-};
-
-exports.put = (url, header, body) => {
-    return requestWithBody('PUT', Packages.arc.util.Http.HttpMethod.PUT, url, header, body);
+    return requestPost(url, header, body);
 };
 
 exports.get = (url, header) => {
@@ -157,15 +142,3 @@ exports.get = (url, header) => {
     return handleRequest(req);
 };
 
-exports.del = (url, header, body) => {
-    return requestWithBody('DELETE', Packages.arc.util.Http.HttpMethod.DELETE, url, header, body);
-};
-
-exports.patch = (url, header, body) => {
-    let arcMethod = undefined;
-    try {
-        arcMethod = Packages.arc.util.Http.HttpMethod.PATCH;
-    } catch (e) {
-    }
-    return requestWithBody('PATCH', arcMethod, url, header, body);
-};

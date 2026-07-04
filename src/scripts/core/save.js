@@ -1,3 +1,4 @@
+// 存档归档：创建、读取、应用和删除 BetterSave 的 SMSF 备份文件。
 const config = require('bettersave/core/config');
 const fs = require('bettersave/tools/file');
 const smsf = require('bettersave/core/smsf');
@@ -92,23 +93,6 @@ exports.readAll = () => {
         } catch (e) {
             print(e);
         }
-    }
-    return ret;
-};
-
-exports.readAllPlayers = () => {
-    let ret = [];
-    let lst = fs.readDir(config.playerDir);
-    for (let fn of lst) {
-        let path = config.playerDir + '/' + fn;
-        if (fs.isDir(path)) continue;
-        ret.push({
-            save: {
-                name: fn,
-                path: path,
-                data: fs.readFile(path)
-            }
-        });
     }
     return ret;
 };

@@ -1,9 +1,9 @@
-
+// 存档管理对话框：展示本地备份，提供备份、恢复、编辑和云同步入口。
 const listView = require("bettersave/ui/tools/listView");
 const saveEditDialog = require("bettersave/ui/tools/saveEdit");
 const cloudSettingDialog = require("bettersave/ui/cloudSettingDialog");
 const inputDialog = require("bettersave/ui/tools/input");
-const cloud = require("bettersave/core/cloud");
+const cloud = require("bettersave/cloud/index");
 const save = require("bettersave/core/save");
 
 var mainDialog = null;
@@ -20,7 +20,7 @@ exports.init = () => {
     mainDialog = listView.init();
     mainDialog.setTitle('@saveMgr.title');
 
-    cloud.init(false);
+    cloud.init();
     save.init();
     saveEditDialog.init([Vars.ui.settings, mainDialog]);
     cloudSettingDialog.init();
@@ -51,7 +51,7 @@ exports.init = () => {
     updateButtons();
 
     cloudSettingDialog.dialog.hidden(() => {
-        cloud.init(false);
+        cloud.init();
         updateButtons();
         mainDialog.rebuild();
     });
@@ -93,7 +93,6 @@ exports.init = () => {
 
         let saveLst = save.readAll();
 
-        // Sort by date descending (newest first)
         saveLst.sort((a, b) => {
             for (let i = 0; i < 6; i++) {
                 if (a.time[i] !== b.time[i]) {

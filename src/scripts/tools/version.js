@@ -1,3 +1,4 @@
+// 版本信息工具：从 mod 元数据中读取版本号和描述。
 const mod = Vars.mods.getMod("bettersave");
 
 var versionStr = "0.0.0";

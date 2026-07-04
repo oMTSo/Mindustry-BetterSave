@@ -1,4 +1,4 @@
-
+// 路径和配置存储：集中管理 BetterSave 目录，并读写 JSON 配置文件。
 const fs = require('bettersave/tools/file');
 const types = require('bettersave/tools/type');
 

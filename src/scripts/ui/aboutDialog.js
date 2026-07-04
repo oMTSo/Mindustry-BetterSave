@@ -1,4 +1,4 @@
-
+// 关于对话框：展示模组版本、描述和图标信息。
 const version = require('bettersave/tools/version');
 
 let aboutDialog = null;

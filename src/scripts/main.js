@@ -1,6 +1,6 @@
-
+// 模组入口：注册 UI，并在游戏启动和战役退出时触发云同步。
 const save = require('bettersave/core/save');
-const cloud = require('bettersave/core/cloud');
+const cloud = require('bettersave/cloud/index');
 const version = require('bettersave/tools/version');
 const ui = require('bettersave/ui/ui');
 const editor = require('bettersave/core/editor');
@@ -11,12 +11,11 @@ print('bettersave v' + version.major.toString() + '.' + version.minor.toString()
 Events.on(ClientLoadEvent, () => {
     editor.removeFiles();
     Time.run(10, () => {
-        // print('bettersave init begin');
         ui.register();
         save.init();
         control.onCampaignQuit(() => {
             editor.removeFiles();
-            cloud.init(false);
+            cloud.init();
             if (cloud.isEnable() && !control.isNetClient()) {
                 Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncToComfirm", () => {
                     Vars.ui.loadAnd('@cloudSave.syncingTo', () => {
@@ -33,7 +32,7 @@ Events.on(ClientLoadEvent, () => {
             }
         });
         control.listen();
-        cloud.init(false);
+        cloud.init();
         if (cloud.isEnable() && !control.isNetClient()) {
             Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncFromComfirm", () => {
                 Vars.ui.loadAnd('@cloudSave.syncingFrom', () => {
@@ -50,6 +49,5 @@ Events.on(ClientLoadEvent, () => {
                 });
             });
         }
-        // print('bettersave init end');
     });
 });

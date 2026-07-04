@@ -1,4 +1,4 @@
-
+// 游戏控制工具：封装保存当前地图、关闭地图、监听退出和重载存档状态。
 var campaignQuitListener = [];
 
 exports.isInMap = ()=>{
@@ -46,7 +46,6 @@ exports.onCampaignQuit = (listener)=>{
 
 exports.listen = ()=>{
     
-    // listen for CampaignQuit
     let inCampaign = false;
     let playingToMenu = false;
     Events.on(StateChangeEvent,(e)=>{
@@ -98,7 +97,6 @@ exports.reloadSave = ()=>{
         let slst = planet.sectors;
         for (let ii=0;ii<slst.size;ii++){
             let sector = slst.items[ii];
-            //print(sector);
             sector.save = null;
             sector.loadInfo();
         }
@@ -110,41 +108,3 @@ exports.reloadSave = ()=>{
     Vars.ui.research.rebuildTree(Packages.mindustry.content.TechTree.roots.items[0]);
     
 };
-
-/*
-// old version of reloadSave
-// now is removed as it leads to several problems
-
-exports.reloadSave = ()=>{
-    
-    // remove all techTree nodes
-    while (Packages.mindustry.content.TechTree.roots.size>0) Packages.mindustry.content.TechTree.roots.pop();
-    while (Packages.mindustry.content.TechTree.all.size>0) Packages.mindustry.content.TechTree.all.pop();
-    
-    // reload all content
-    Vars.content = new Packages.mindustry.core.ContentLoader();
-    Vars.content.createBaseContent();
-    Vars.content.loadColors();
-    Vars.content.createModContent();
-    
-    // reload schematics (known that the game may crash if schematics show its errorTexture when handling an error schematic)
-    Vars.schematics = new Packages.mindustry.game.Schematics();
-    Vars.schematics.load();
-    
-    // init all content
-    Vars.content.init();
-    Vars.content.load();
-    Vars.bases.load();
-    
-    // reload saves
-    Vars.control.saves.load();
-    
-    // update planet dialog's plant vars
-    Vars.ui.planet.state.planet = Packages.mindustry.content.Planets.serpulo;
-    
-    // rebuild research dialog
-    Vars.ui.research.lastNode = null;
-    Vars.ui.research.rebuildTree(Packages.mindustry.content.TechTree.roots.items[0]);
-    
-};
-*/

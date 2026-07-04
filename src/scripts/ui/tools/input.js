@@ -1,4 +1,4 @@
-
+// 通用输入对话框：向用户收集一段文本并回调给调用方。
 var inputDialog = null;
 
 var currentValue = '';

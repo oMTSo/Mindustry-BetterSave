@@ -1,4 +1,4 @@
-
+// 存档地图编辑对话框：把当前存档或备份中的地图交给游戏编辑器修改。
 const editor = require('bettersave/core/editor');
 const save = require('bettersave/core/save');
 const config = require('bettersave/core/config');
@@ -180,18 +180,14 @@ exports.init = (parents) => {
     saveEditDialog.hidden(() => {
         setting.unload();
         if (!needRebuild || !modified) {
-            //saveEditDialog.hide();
             return;
         }
         if (currentEditingFile.isSmsf && targetPath != null && target != null) {
             Time.run(10, () => {
                 Vars.ui.loadAnd('@saveEdit.saving', () => {
                     target.writeToSavePath();
-                    //saveEditDialog.hide();
                 });
             });
-        } else {
-            //saveEditDialog.hide();
         }
     });
 

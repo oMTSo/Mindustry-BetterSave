@@ -1,4 +1,4 @@
-
+// UI 总入口：向 Mindustry 设置菜单注册 BetterSave 的各个对话框入口。
 const mainDialog = require('bettersave/ui/mainDialog');
 const playerDialog = require('bettersave/ui/playerDialog');
 const cloudSettingDialog = require('bettersave/ui/cloudSettingDialog');

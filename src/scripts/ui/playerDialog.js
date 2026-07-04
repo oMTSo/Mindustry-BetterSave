@@ -1,4 +1,4 @@
-
+// 玩家档案对话框：管理多个本地玩家档案并执行切换。
 const listView = require("bettersave/ui/tools/listView");
 const inputDialog = require("bettersave/ui/tools/input");
 const player = require("bettersave/core/player");

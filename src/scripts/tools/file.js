@@ -1,4 +1,4 @@
-
+// 文件工具：封装 Mindustry 脚本环境中的文件读写、建目录和删除操作。
 exports.readFile = (path) => {
     return java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
 };

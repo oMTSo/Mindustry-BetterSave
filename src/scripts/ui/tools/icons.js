@@ -1,3 +1,4 @@
+// 图标注册工具：把自带贴图注册到 Mindustry 的 Icon 表中。
 exports.init = () => {
     let githubRegion = Core.atlas.find("bettersave-github");
     let giteeRegion = Core.atlas.find("bettersave-gitee");

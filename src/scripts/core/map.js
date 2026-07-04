@@ -1,3 +1,4 @@
+// 地图名称解析：把 Mindustry 存档文件名解析成适合 UI 展示的信息。
 const setting = require('bettersave/core/setting');
 
 var tree = {};

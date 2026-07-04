@@ -1,4 +1,4 @@
-
+// 游戏设置归档：打包和恢复与战役进度相关的 Core.settings 项。
 const types = require('bettersave/tools/type');
 
 var setting = null;
@@ -54,24 +54,7 @@ function settingKeys() {
     return ret;
 }
 
-/*
-    =List of settings we need to store=
-        *-unlocked
-        save-*-name
-        save-*-autosave
-        hiscore*
-        last-sector-save
-        lastplanet
-        req-*
-        *-hint-done
-        *-s-*-info
-        lastloadout-*
-        lastloadout-core-foundation
-        lastloadout-core-nucleus
-        lastloadout-core-shard
-        launch-resources-seq
-    ==
-*/
+// 只打包与战役进度、科技树、区块信息和发射配置相关的设置项。
 function filter(key) {
     return (
         (key.endsWith('-unlocked')) ||

@@ -1,3 +1,4 @@
+// 玩家档案管理：保存当前玩家状态，并在多个本地玩家档案之间切换。
 const config = require('bettersave/core/config');
 const fs = require('bettersave/tools/file');
 const save = require('bettersave/core/save');

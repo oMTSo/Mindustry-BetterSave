@@ -1,3 +1,4 @@
+// 地图编辑桥接：把存档中的地图临时交给 Mindustry 编辑器并回收结果。
 const fs = require('bettersave/tools/file');
 const config = require('bettersave/core/config');
 const control = require('bettersave/core/control');
@@ -109,7 +110,6 @@ exports.on = (name, f) => {
     }
 };
 
-// this don't need to init whole module
 exports.removeFiles = () => {
     if (!config.isInited()) config.init();
     fileNeedToRemove = Object.assign({ fileNeedToRemove: [] }, config.readConfig('editor')).fileNeedToRemove;

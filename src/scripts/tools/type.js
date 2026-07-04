@@ -1,4 +1,4 @@
-
+// 字节转换工具：处理 UTF-8 字符串和 Java byte[] 之间的转换。
 exports.getString = (str)=>{
     if (str.length==0) return [];
     return (new java.lang.String(str)).getBytes(java.nio.charset.Charset.forName("UTF-8"));

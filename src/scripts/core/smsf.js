@@ -1,4 +1,4 @@
-
+// SMSF 二进制格式读写：负责存档包的元数据和文件块序列化。
 const types = require('bettersave/tools/type');
 
 const magic = [0x53, 0x4D, 0x53, 0x46];

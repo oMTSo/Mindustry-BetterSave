@@ -1,6 +1,5 @@
-
-const cloud = require('bettersave/core/cloud');
-const save = require('bettersave/core/save');
+// 云存档设置对话框：编辑仓库配置并触发上传、下载、清空操作。
+const cloud = require('bettersave/cloud/index');
 const myIcons = require('bettersave/ui/tools/icons');
 
 var cloudSaveDialog = null;
@@ -11,12 +10,11 @@ var saveBtn = null;
 exports.dialog = cloudSaveDialog;
 
 function rebuild() {
-    cloud.init(false);
+    cloud.init();
     conf = cloud.getConfig();
     confModified = false;
     cloudSaveDialog.cont.clear();
 
-    // config
     cloudSaveDialog.cont.pane((pane) => {
         pane.add("@cloudConfig.token").padRight(8).left();
         pane.field(conf.token || "", {
@@ -57,7 +55,6 @@ function rebuild() {
 
     cloudSaveDialog.cont.row();
 
-    // enableCloudSaveBtn
     let b = cloudSaveDialog.cont.button('enableCloudSave', Icon.cancel, () => {
         conf.enable = !conf.enable;
         confModified = true;
@@ -81,12 +78,10 @@ function rebuild() {
     };
     cloudSaveDialog.cont.row();
 
-    // uploadBtn
     exports.createUploadBtn(cloudSaveDialog.cont).margin(14).width(240).height(64).pad(4).center().get();
 
     cloudSaveDialog.cont.row();
 
-    // downloadBtn
     exports.createDownloadBtn(cloudSaveDialog.cont).margin(14).width(240).height(64).pad(4).center().get();
 
     cloudSaveDialog.cont.row();
@@ -101,7 +96,6 @@ function rebuild() {
 
     cloudSaveDialog.cont.row();
 
-    // clearBtn
     cloudSaveDialog.cont.button("@cloudConfig.clear", Icon.trash, () => {
         if (!checkConf()) return;
         Vars.ui.showConfirm('@cloudConfig.clear.desc', Core.bundle.format('cloudConfig.clear.comfirm', conf.repo), () => {
@@ -123,7 +117,6 @@ function rebuild() {
 
     cloudSaveDialog.cont.row();
 
-    // providerBtn
     let btnProvider = cloudSaveDialog.cont.button('provider', Icon.refresh, () => {
         if (!conf.provider || conf.provider === 'github') {
             conf.provider = 'gitee';
@@ -155,7 +148,7 @@ function rebuild() {
     bUpdate();
 }
 
-// Helper: Check config validity
+// 检查当前配置是否可以执行云端操作。
 const checkConf = () => {
     if (!cloud.isEnable()) {
         Vars.ui.showOkText('@error', '@cloudConfig.warn.cloudSaveIsDisabled', () => { });
@@ -180,7 +173,7 @@ const checkConf = () => {
     return true;
 };
 
-// Helper: Update save button state
+// 根据配置是否修改更新保存按钮状态。
 const updateSaveBtn = () => {
     if (!saveBtn) return;
     let btn = saveBtn.get();
@@ -201,7 +194,6 @@ const updateSaveBtn = () => {
     }
 };
 
-// Exports with parent argument support
 exports.createUploadBtn = (parent) => {
     if (!parent) parent = cloudSaveDialog.cont;
     return parent.button("@cloudConfig.upload", Icon.upload, () => {
@@ -247,14 +239,13 @@ exports.init = () => {
     cloudSaveDialog = new Packages.mindustry.ui.dialogs.BaseDialog('@cloudConfig.title');
     exports.dialog = cloudSaveDialog;
 
-    cloud.init(false);
-    save.init();
+    cloud.init();
     myIcons.init();
     conf = cloud.getConfig();
 
     cloudSaveDialog.buttons.defaults().size(210, 64);
     cloudSaveDialog.addCloseButton();
-    saveBtn = cloudSaveDialog.buttons.button("@cloudConfig.saved", Icon.ok, () => { // Default to saved state
+    saveBtn = cloudSaveDialog.buttons.button("@cloudConfig.saved", Icon.ok, () => {
         try {
             cloud.setConfig(conf);
             confModified = false;
@@ -269,6 +260,5 @@ exports.init = () => {
     cloudSaveDialog.addCloseListener();
     cloudSaveDialog.shown(rebuild);
 
-    // Initial update
     updateSaveBtn();
 };
