@@ -126,6 +126,13 @@ function fetchBlob(conf, sha) {
     return readJsonResponse(http.get(meta.url, meta.headers), 'Fetch blob', [200]);
 }
 
+function readBranchTree(conf) {
+    ensureGithubProvider(conf);
+    let headRef = getHeadRef(conf);
+    let commit = getCommit(conf, headRef.object.sha);
+    return fetchRecursiveTree(conf, commit.tree.sha);
+}
+
 exports.testRepository = (conf) => {
     try {
         let meta = getRequestMeta(conf, '');
@@ -164,11 +171,7 @@ exports.replaceBranchTree = (conf, localFiles, message) => {
 };
 
 exports.readBranchFiles = (conf) => {
-    ensureGithubProvider(conf);
-
-    let headRef = getHeadRef(conf);
-    let commit = getCommit(conf, headRef.object.sha);
-    let tree = fetchRecursiveTree(conf, commit.tree.sha);
+    let tree = readBranchTree(conf);
     let files = [];
 
     for (let item of tree.tree) {
@@ -181,4 +184,20 @@ exports.readBranchFiles = (conf) => {
     }
 
     return files;
+};
+
+exports.readRemoteMeta = (conf) => {
+    let tree = readBranchTree(conf);
+    for (let item of tree.tree) {
+        if (item.type !== 'blob') continue;
+        if (item.path !== 'meta/sync.json') continue;
+
+        let blob = fetchBlob(conf, item.sha);
+        let text = new java.lang.String(
+            java.util.Base64.getMimeDecoder().decode(blob.content.replace(/\n/g, '')),
+            java.nio.charset.Charset.forName('UTF-8')
+        ).toString();
+        return JSON.parse(text);
+    }
+    return null;
 };

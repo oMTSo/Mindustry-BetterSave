@@ -60,26 +60,59 @@ const cloud = require('bettersave/cloud/index');
 上传流程：
 
 1. 主线程保存当前游戏状态并生成一份 `cloudsave` 本地 `.smsf` 备份。
-2. 后台线程扫描本地 `betterSave/config`、`betterSave/saves`、`betterSave/players`。
-3. 过滤 `config/cloudsave.json`，避免上传 GitHub token。
-4. 清洗玩家 `.smsf` 中历史残留的 `../bettersave/config/cloudsave.json`。
-5. 逐个创建 GitHub blob。
-6. 创建一棵只包含当前本地同步文件的新 tree。
-7. 创建 commit。
-8. 用 GraphQL `updateRef` 将分支指向新 commit。
+2. 后台线程读取远端 `meta/sync.json`，如果远端比本地上次同步更新，则回主线程提示“本地过期”。
+3. 用户确认覆盖后，后台线程扫描本地 `betterSave/config`、`betterSave/saves`、`betterSave/players`。
+4. 过滤 `config/cloudsave.json` 和 `config/sync.json`，避免上传本地 token 和本地状态文件。
+5. 清洗玩家 `.smsf` 中历史残留的 `../bettersave/config/cloudsave.json`。
+6. 生成远端 `meta/sync.json`。
+7. 逐个创建 GitHub blob。
+8. 创建一棵只包含当前本地同步文件的新 tree。
+9. 创建 commit。
+10. 用 GraphQL `updateRef` 将分支指向新 commit。
 
 下载流程：
 
 1. 后台线程读取远端分支 tree。
-2. 下载远端所有 blob 到内存。
-3. 主线程关闭当前地图。
-4. 替换本地 `config`、`saves`、`players`。
-5. 保留本地 `config/cloudsave.json`，避免下载覆盖或删除 token 配置。
-6. 重载 Mindustry 存档状态。
+2. 读取远端 `meta/sync.json`，并检查本地同步文件是否在上次同步后发生修改。
+3. 如果本地更新，则回主线程提示“云端过期”。
+4. 用户确认覆盖后，后台线程下载远端所有 blob 到内存。
+5. 主线程关闭当前地图。
+6. 替换本地 `config`、`saves`、`players`。
+7. 保留本地 `config/cloudsave.json`，避免下载覆盖或删除 token 配置。
+8. 将远端 `meta/sync.json` 写入本地 `config/sync.json`。
+9. 重载 Mindustry 存档状态。
 
 清空云端：
 
 - 创建一棵空 tree，并将分支指向对应 commit。
+
+## 同步元数据
+
+同步状态由两份文件维护：
+
+```text
+本地：betterSave/config/sync.json
+远端：meta/sync.json
+```
+
+字段示例：
+
+```json
+{
+  "version": 1,
+  "updatedAt": "2026-07-05T12:30:00.000Z",
+  "localSyncedAt": "2026-07-05T12:30:05.000Z",
+  "deviceId": "device-id",
+  "deviceName": "Mindustry",
+  "fileCount": 8
+}
+```
+
+判断规则：
+
+- 上传前：如果远端 `updatedAt` 大于本地 `updatedAt`，提示“本地过期”。
+- 下载前：如果本地 `updatedAt` 大于远端 `updatedAt`，或本地同步文件在 `localSyncedAt` 后被修改，提示“云端过期”。
+- 启动时：后台只读取远端 `meta/sync.json`，只有远端 `updatedAt` 大于本地 `updatedAt` 时才弹下载提示。
 
 ## GitHub API 注意事项
 
@@ -121,10 +154,11 @@ const cloud = require('bettersave/cloud/index');
 UI 调用应使用异步 API：
 
 ```js
-cloud.uploadSavesAsync(onSuccess, onError);
-cloud.downloadSavesAsync(onSuccess, onError);
+cloud.uploadSavesAsync({ force: false }, onSuccess, onError, onConflict);
+cloud.downloadSavesAsync({ force: false }, onSuccess, onError, onConflict);
 cloud.clearCloudAsync(onSuccess, onError);
 cloud.testAsync(conf, onSuccess, onError);
+cloud.checkRemoteUpdateAsync(onSuccess, onError);
 ```
 
 不要在 UI 中直接调用旧同步接口，也不要在 `Vars.ui.loadAnd(...)` 回调中执行网络请求。

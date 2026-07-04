@@ -17,6 +17,75 @@ function hideLoading() {
     Vars.ui.loadfrag.hide();
 }
 
+function formatSyncTime(time) {
+    if (!time || time <= 0) return Core.bundle.get('cloudConfig.test.none');
+    return new Date(time).toLocaleString();
+}
+
+function formatDevice(meta) {
+    if (!meta) return Core.bundle.get('cloudConfig.test.none');
+    let name = meta.deviceName || '';
+    let id = meta.deviceId || '';
+    if (name.length == 0 && id.length == 0) return Core.bundle.get('cloudConfig.test.none');
+    if (name.length == 0) return id;
+    if (id.length == 0) return name;
+    return name + ' (' + id + ')';
+}
+
+function syncConclusionText(key) {
+    return Core.bundle.get('cloudConfig.test.result.' + key);
+}
+
+function makeTestReport(result) {
+    if (!result.ok) return Core.bundle.get('cloudConfig.test.fail');
+
+    let state = result.state;
+    let localTime = formatSyncTime(state.localTime);
+    let remoteTime = formatSyncTime(state.remoteTime);
+    let localDevice = formatDevice(state.local);
+    let remoteDevice = formatDevice(state.remote);
+    return Core.bundle.get('cloudConfig.test.success') + '\n\n' +
+        Core.bundle.format('cloudConfig.test.localTime', localTime) + '\n' +
+        Core.bundle.format('cloudConfig.test.remoteTime', remoteTime) + '\n' +
+        Core.bundle.format('cloudConfig.test.localDevice', localDevice) + '\n' +
+        Core.bundle.format('cloudConfig.test.remoteDevice', remoteDevice) + '\n\n' +
+        Core.bundle.format('cloudConfig.test.result', syncConclusionText(result.conclusion));
+}
+
+function uploadCloud(force) {
+    showLoading('cloudSave.syncingTo');
+    cloud.uploadSavesAsync({ force: force }, () => {
+        hideLoading();
+        Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
+    }, (e) => {
+        hideLoading();
+        print(e);
+        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncToFail') + e.toString(), () => { });
+    }, () => {
+        hideLoading();
+        Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.localExpired", () => {
+            uploadCloud(true);
+        });
+    });
+}
+
+function downloadCloud(force) {
+    showLoading('cloudSave.syncingFrom');
+    cloud.downloadSavesAsync({ force: force }, () => {
+        hideLoading();
+        Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
+    }, (e) => {
+        hideLoading();
+        print(e);
+        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncFromFail') + e.toString(), () => { });
+    }, () => {
+        hideLoading();
+        Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.remoteExpired", () => {
+            downloadCloud(true);
+        });
+    });
+}
+
 function rebuild() {
     cloud.init();
     conf = cloud.getConfig();
@@ -96,13 +165,9 @@ function rebuild() {
 
     cloudSaveDialog.cont.button("@cloudConfig.test", Icon.play, () => {
         showLoading('cloudConfig.test');
-        cloud.testAsync(conf, (ok) => {
+        cloud.inspectSyncAsync(conf, (result) => {
             hideLoading();
-            if (ok) {
-                Vars.ui.showOkText('@cloudConfig.test', '@cloudConfig.test.success', () => { });
-            } else {
-                Vars.ui.showOkText('@cloudConfig.test', '@cloudConfig.test.fail', () => { });
-            }
+            Vars.ui.showOkText('@cloudConfig.test', makeTestReport(result), () => { });
         }, (e) => {
             hideLoading();
             print(e);
@@ -217,16 +282,8 @@ exports.createUploadBtn = (parent) => {
     return parent.button("@cloudConfig.upload", Icon.upload, () => {
         if (!checkConf()) return;
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncToComfirm", () => {
-            showLoading('cloudSave.syncingTo');
             cloud.init();
-            cloud.uploadSavesAsync(() => {
-                hideLoading();
-                Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
-            }, (e) => {
-                hideLoading();
-                print(e);
-                Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncToFail') + e.toString(), () => { });
-            });
+            uploadCloud(false);
         });
     });
 };
@@ -236,16 +293,8 @@ exports.createDownloadBtn = (parent) => {
     return parent.button("@cloudConfig.download", Icon.download, () => {
         if (!checkConf()) return;
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncFromComfirm", () => {
-            showLoading('cloudSave.syncingFrom');
             cloud.init();
-            cloud.downloadSavesAsync(() => {
-                hideLoading();
-                Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
-            }, (e) => {
-                hideLoading();
-                print(e);
-                Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncFromFail') + e.toString(), () => { });
-            });
+            downloadCloud(false);
         });
     });
 };

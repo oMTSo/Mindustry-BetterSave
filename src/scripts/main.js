@@ -16,6 +16,40 @@ function hideLoading() {
     Vars.ui.loadfrag.hide();
 }
 
+function uploadCloud(force) {
+    showLoading('cloudSave.syncingTo');
+    cloud.uploadSavesAsync({ force: force }, () => {
+        hideLoading();
+        Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
+    }, (e) => {
+        hideLoading();
+        print(e);
+        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncToFail') + e.toString(), () => { });
+    }, () => {
+        hideLoading();
+        Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.localExpired", () => {
+            uploadCloud(true);
+        });
+    });
+}
+
+function downloadCloud(force) {
+    showLoading('cloudSave.syncingFrom');
+    cloud.downloadSavesAsync({ force: force }, () => {
+        hideLoading();
+        Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
+    }, (e) => {
+        hideLoading();
+        print(e);
+        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncFromFail') + e.toString(), () => { });
+    }, () => {
+        hideLoading();
+        Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.remoteExpired", () => {
+            downloadCloud(true);
+        });
+    });
+}
+
 Events.on(ClientLoadEvent, () => {
     editor.removeFiles();
     Time.run(10, () => {
@@ -26,33 +60,20 @@ Events.on(ClientLoadEvent, () => {
             cloud.init();
             if (cloud.isEnable() && !control.isNetClient()) {
                 Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncToComfirm", () => {
-                    showLoading('cloudSave.syncingTo');
-                    cloud.init();
-                    cloud.uploadSavesAsync(() => {
-                        hideLoading();
-                        Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
-                    }, (e) => {
-                        hideLoading();
-                        print(e);
-                        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncToFail') + e.toString(), () => { });
-                    });
+                    uploadCloud(false);
                 });
             }
         });
         control.listen();
         cloud.init();
         if (cloud.isEnable() && !control.isNetClient()) {
-            Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncFromComfirm", () => {
-                showLoading('cloudSave.syncingFrom');
-                cloud.init();
-                cloud.downloadSavesAsync(() => {
-                    hideLoading();
-                    Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
-                }, (e) => {
-                    hideLoading();
-                    print(e);
-                    Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncFromFail') + e.toString(), () => { });
+            cloud.checkRemoteUpdateAsync((state) => {
+                if (!state.hasRemoteUpdate) return;
+                Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncFromComfirm", () => {
+                    downloadCloud(false);
                 });
+            }, (e) => {
+                print(e);
             });
         }
     });

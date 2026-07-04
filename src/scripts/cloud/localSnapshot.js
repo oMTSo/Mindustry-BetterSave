@@ -4,7 +4,11 @@ const save = require('bettersave/core/save');
 const fs = require('bettersave/tools/file');
 
 const cloudConfigFile = 'cloudsave.json';
+const syncConfigName = 'sync';
+const syncConfigFile = 'sync.json';
+const remoteSyncPath = 'meta/sync.json';
 const archivedCloudConfigPath = '../bettersave/config/cloudsave.json';
+const ignoredConfigFiles = [cloudConfigFile, syncConfigFile, 'editor.json'];
 
 function isSyncedPath(path) {
     return path.startsWith('config/') || path.startsWith('saves/') || path.startsWith('players/');
@@ -20,6 +24,46 @@ function readPreservedCloudConfig() {
     let path = config.configDir + '/' + cloudConfigFile;
     if (!fs.pathExist(path)) return null;
     return fs.readFile(path);
+}
+
+// 只有真正属于云存档的数据才参与上传和本地更新时间判断。
+function shouldSyncLocalFile(prefix, fn) {
+    if (prefix == 'config' && ignoredConfigFiles.includes(fn)) return false;
+    return true;
+}
+
+function makeDeviceId() {
+    return new Date().getTime().toString() + '-' + Math.floor(Math.random() * 1000000000).toString();
+}
+
+function readLocalMeta() {
+    if (!config.isInited()) config.init();
+    return Object.assign({
+        version: 1,
+        updatedAt: '',
+        localSyncedAt: '',
+        deviceId: makeDeviceId(),
+        deviceName: 'Mindustry',
+        fileCount: 0
+    }, config.readConfig(syncConfigName));
+}
+
+function writeLocalMeta(meta) {
+    if (!config.isInited()) config.init();
+    meta.localSyncedAt = new Date().toISOString();
+    config.writeConfig(syncConfigName, meta);
+}
+
+function makeUploadMeta(fileCount) {
+    let old = readLocalMeta();
+    return {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        localSyncedAt: new Date().toISOString(),
+        deviceId: old.deviceId || makeDeviceId(),
+        deviceName: old.deviceName || 'Mindustry',
+        fileCount: fileCount
+    };
 }
 
 function restorePreservedCloudConfig(data) {
@@ -50,7 +94,7 @@ function readLocalFilesInDir(dir, prefix) {
 
     let lst = fs.readDir(dir);
     for (let fn of lst) {
-        if (prefix == 'config' && fn == cloudConfigFile) continue;
+        if (!shouldSyncLocalFile(prefix, fn)) continue;
 
         let abs = dir + '/' + fn;
         if (fs.isDir(abs)) continue;
@@ -75,6 +119,22 @@ function writeDownloadedFile(remotePath, data) {
     } else if (remotePath.startsWith('players/')) {
         fs.writeFile(config.playerDir + '/' + remotePath.substring(8), data);
     }
+}
+
+function latestModifiedInDir(dir, prefix) {
+    if (!fs.pathExist(dir)) return 0;
+    let latest = 0;
+    let lst = fs.readDir(dir);
+    for (let fn of lst) {
+        if (!shouldSyncLocalFile(prefix, fn)) continue;
+
+        let abs = dir + '/' + fn;
+        if (fs.isDir(abs)) continue;
+
+        let m = new java.io.File(abs).lastModified();
+        if (m > latest) latest = m;
+    }
+    return latest;
 }
 
 exports.collectUploadFiles = () => {
@@ -105,4 +165,26 @@ exports.replaceLocalFiles = (remoteFiles) => {
     }
 
     restorePreservedCloudConfig(preservedCloudConfig);
+};
+
+exports.makeMetaFile = (fileCount) => {
+    let meta = makeUploadMeta(fileCount);
+    return {
+        path: remoteSyncPath,
+        data: new java.lang.String(JSON.stringify(meta)).getBytes('UTF-8'),
+        meta: meta
+    };
+};
+
+exports.readLocalMeta = readLocalMeta;
+exports.writeLocalMeta = writeLocalMeta;
+exports.remoteSyncPath = remoteSyncPath;
+
+exports.latestLocalModifiedTime = () => {
+    if (!config.isInited()) config.init();
+    return Math.max(
+        latestModifiedInDir(config.configDir, 'config'),
+        latestModifiedInDir(config.saveDir, 'saves'),
+        latestModifiedInDir(config.playerDir, 'players')
+    );
 };
