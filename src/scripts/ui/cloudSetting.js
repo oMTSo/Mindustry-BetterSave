@@ -98,9 +98,6 @@ function rebuild() {
             Vars.ui.loadAnd('@cloudSave.syncingTo', () => {
                 try {
                     cloud.init();
-                    // We don't really need save.make('cloudsave') anymore for the data, 
-                    // but it does 'control.saveCurrentMap()', which is useful.
-                    save.make('cloudsave');
                     cloud.writeSave();
                     Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
                 } catch (e) {

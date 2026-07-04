@@ -22,8 +22,6 @@ Events.on(ClientLoadEvent, () => {
                     Vars.ui.loadAnd('@cloudSave.syncingTo', () => {
                         try {
                             cloud.init();
-                            // [FIX] Write the backup to disk so it can be uploaded
-                            save.make('cloudsave').writeToSavePath();
                             cloud.writeSave();
                             Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
                         } catch (e) {

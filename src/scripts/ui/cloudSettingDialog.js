@@ -210,7 +210,6 @@ exports.createUploadBtn = (parent) => {
             Vars.ui.loadAnd('@cloudSave.syncingTo', () => {
                 try {
                     cloud.init();
-                    save.make('cloudsave');
                     cloud.writeSave();
                     Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
                 } catch (e) {

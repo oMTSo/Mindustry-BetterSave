@@ -54,7 +54,10 @@ function makeObj(obj) {
         fs.writeFile(path, ret.makeData());
     };
     ret.writeToSavePath = () => {
-        ret.write(config.saveDir + '/' + getSaveFileName(ret));
+        let path = config.saveDir + '/' + getSaveFileName(ret);
+        ret.write(path);
+        ret.save.path = path;
+        ret.save.name = getSaveFileName(ret);
     };
     return ret;
 }
@@ -89,6 +92,23 @@ exports.readAll = () => {
         } catch (e) {
             print(e);
         }
+    }
+    return ret;
+};
+
+exports.readAllPlayers = () => {
+    let ret = [];
+    let lst = fs.readDir(config.playerDir);
+    for (let fn of lst) {
+        let path = config.playerDir + '/' + fn;
+        if (fs.isDir(path)) continue;
+        ret.push({
+            save: {
+                name: fn,
+                path: path,
+                data: fs.readFile(path)
+            }
+        });
     }
     return ret;
 };

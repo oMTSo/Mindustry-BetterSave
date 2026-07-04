@@ -71,13 +71,6 @@ function makeObj(obj) {
 
         let current = save.make(ret.name);
 
-        if (fs.pathExist(config.configDir + '/cloudsave.json')) {
-            current.files.push({
-                name: '../bettersave/config/cloudsave.json',
-                data: fs.readFile(config.configDir + '/cloudsave.json')
-            });
-        }
-
         let lst = fs.readDir(config.saveDir);
         for (let fn of lst) {
             current.files.push({
@@ -90,7 +83,6 @@ function makeObj(obj) {
         current.write(currentPath);
 
         fs.removeFilesInDir(config.saveDir);
-        fs.removeFile(config.configDir + '/cloudsave.json');
 
         currentPlayer.save.path = config.playerDir + '/' + current.save.name;
         currentPlayer.save.name = current.save.name;
