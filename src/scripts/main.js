@@ -8,6 +8,14 @@ const control = require('bettersave/core/control');
 
 print('bettersave v' + version.major.toString() + '.' + version.minor.toString() + '.' + version.bugFix.toString());
 
+function showLoading(key) {
+    Vars.ui.loadfrag.show(Core.bundle.get(key));
+}
+
+function hideLoading() {
+    Vars.ui.loadfrag.hide();
+}
+
 Events.on(ClientLoadEvent, () => {
     editor.removeFiles();
     Time.run(10, () => {
@@ -18,15 +26,15 @@ Events.on(ClientLoadEvent, () => {
             cloud.init();
             if (cloud.isEnable() && !control.isNetClient()) {
                 Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncToComfirm", () => {
-                    Vars.ui.loadAnd('@cloudSave.syncingTo', () => {
-                        try {
-                            cloud.init();
-                            cloud.writeSave();
-                            Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
-                        } catch (e) {
-                            print(e);
-                            Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncToFail') + e.toString(), () => { });
-                        }
+                    showLoading('cloudSave.syncingTo');
+                    cloud.init();
+                    cloud.uploadSavesAsync(() => {
+                        hideLoading();
+                        Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
+                    }, (e) => {
+                        hideLoading();
+                        print(e);
+                        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncToFail') + e.toString(), () => { });
                     });
                 });
             }
@@ -35,17 +43,15 @@ Events.on(ClientLoadEvent, () => {
         cloud.init();
         if (cloud.isEnable() && !control.isNetClient()) {
             Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncFromComfirm", () => {
-                Vars.ui.loadAnd('@cloudSave.syncingFrom', () => {
-                    try {
-                        cloud.init();
-                        let obj = cloud.getSave();
-                        if (obj != null) obj.readFiles();
-                        if (obj != null) obj.apply();
-                        Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
-                    } catch (e) {
-                        print(e);
-                        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncFromFail') + e.toString(), () => { });
-                    }
+                showLoading('cloudSave.syncingFrom');
+                cloud.init();
+                cloud.downloadSavesAsync(() => {
+                    hideLoading();
+                    Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
+                }, (e) => {
+                    hideLoading();
+                    print(e);
+                    Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncFromFail') + e.toString(), () => { });
                 });
             });
         }

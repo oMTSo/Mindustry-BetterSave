@@ -1,0 +1,219 @@
+# BetterSave 维护交接说明
+
+## 项目概览
+
+BetterSave 是 Mindustry 的脚本模组，主要功能是：
+
+- 将当前游戏存档、蓝图和必要的战役设置打包成 `.smsf` 备份。
+- 管理多个本地玩家档案。
+- 使用 GitHub 仓库作为云存档后端，实现全量上传、全量下载和清空云端。
+
+代码入口是 `src/scripts/main.js`。模组加载后会注册 UI，并在启动和战役退出时根据配置询问是否执行云同步。
+
+## 当前文件结构
+
+```text
+src/scripts/
+  main.js                    模组入口
+
+  cloud/
+    index.js                 云同步对外入口，编排上传、下载、清空和测试
+    cloudConfig.js           云同步配置读写
+    localSnapshot.js         本地同步快照收集、敏感配置过滤、本地替换
+    githubGitApi.js          GitHub blob/tree/commit/updateRef/download API
+
+  core/
+    config.js                BetterSave 路径和 JSON 配置读写
+    control.js               保存当前地图、关闭地图、监听退出、重载存档
+    editor.js                地图编辑器桥接
+    map.js                   地图文件名解析
+    player.js                多玩家档案切换
+    save.js                  SMSF 备份创建、读取、应用、删除
+    setting.js               战役相关 Core.settings 打包和恢复
+    smsf.js                  SMSF 二进制格式读写
+
+  tools/
+    file.js                  文件读写工具
+    http.js                  HTTP GET/POST 工具，POST 有 Java URLConnection fallback
+    type.js                  UTF-8 字符串和 byte[] 转换
+    version.js               版本信息读取
+
+  ui/
+    ui.js                    UI 注册入口
+    mainDialog.js            存档管理
+    cloudSettingDialog.js    云同步设置
+    playerDialog.js          玩家档案管理
+    aboutDialog.js           关于
+    tools/                   通用 UI 组件
+```
+
+`src/scripts/core/cloud.js` 已删除。所有云同步调用应直接引用：
+
+```js
+const cloud = require('bettersave/cloud/index');
+```
+
+## 云同步设计
+
+当前云同步是全量覆盖，不是增量同步。
+
+上传流程：
+
+1. 主线程保存当前游戏状态并生成一份 `cloudsave` 本地 `.smsf` 备份。
+2. 后台线程扫描本地 `betterSave/config`、`betterSave/saves`、`betterSave/players`。
+3. 过滤 `config/cloudsave.json`，避免上传 GitHub token。
+4. 清洗玩家 `.smsf` 中历史残留的 `../bettersave/config/cloudsave.json`。
+5. 逐个创建 GitHub blob。
+6. 创建一棵只包含当前本地同步文件的新 tree。
+7. 创建 commit。
+8. 用 GraphQL `updateRef` 将分支指向新 commit。
+
+下载流程：
+
+1. 后台线程读取远端分支 tree。
+2. 下载远端所有 blob 到内存。
+3. 主线程关闭当前地图。
+4. 替换本地 `config`、`saves`、`players`。
+5. 保留本地 `config/cloudsave.json`，避免下载覆盖或删除 token 配置。
+6. 重载 Mindustry 存档状态。
+
+清空云端：
+
+- 创建一棵空 tree，并将分支指向对应 commit。
+
+## GitHub API 注意事项
+
+当前只支持 GitHub。Gitee 配置入口还保留在 UI 上，但 Git Tree 全量同步暂不支持 Gitee。
+
+使用到的 GitHub API：
+
+- `GET /repos/{owner}/{repo}`
+- `GET /repos/{owner}/{repo}/git/ref/heads/{branch}`
+- `GET /repos/{owner}/{repo}/git/commits/{sha}`
+- `POST /repos/{owner}/{repo}/git/blobs`
+- `POST /repos/{owner}/{repo}/git/trees`
+- `POST /repos/{owner}/{repo}/git/commits`
+- `POST https://api.github.com/graphql`，用于 `updateRef`
+- `GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1`
+- `GET /repos/{owner}/{repo}/git/blobs/{sha}`
+
+不要再引入 `DELETE` 或 `PATCH` 作为核心同步依赖。Mindustry/Arc/Rhino 环境对这些请求方法兼容性较差。
+
+## 线程模型
+
+耗时操作必须避免阻塞 Mindustry 主线程，否则窗口会显示未响应。
+
+当前云同步线程边界：
+
+- 主线程：
+  - UI 显示和提示
+  - 保存当前游戏状态
+  - 关闭当前地图
+  - 替换本地后调用 `control.reloadSave()`
+- 后台线程：
+  - GitHub HTTP 请求
+  - 读取远端 blob
+  - 创建 blob/tree/commit
+  - 扫描本地同步文件
+
+`cloud/index.js` 中通过 `Packages.arc.util.Threads.thread` 执行后台任务，并用 `Core.app.post` 回到主线程调用 UI 回调。
+
+UI 调用应使用异步 API：
+
+```js
+cloud.uploadSavesAsync(onSuccess, onError);
+cloud.downloadSavesAsync(onSuccess, onError);
+cloud.clearCloudAsync(onSuccess, onError);
+cloud.testAsync(conf, onSuccess, onError);
+```
+
+不要在 UI 中直接调用旧同步接口，也不要在 `Vars.ui.loadAnd(...)` 回调中执行网络请求。
+
+## 敏感配置处理
+
+用户输入的 GitHub token 存在本地：
+
+```text
+<Vars.saveDirectory>/../betterSave/config/cloudsave.json
+```
+
+这个文件必须保留在本地，不能上传到 GitHub。
+
+已实现的防护：
+
+- `cloud/localSnapshot.js` 上传时跳过 `config/cloudsave.json`。
+- 上传玩家 `.smsf` 前会过滤历史残留的 `../bettersave/config/cloudsave.json`。
+- 下载替换本地配置时会保留本机的 `config/cloudsave.json`。
+
+如果之后修改玩家档案或本地快照逻辑，必须继续保证 token 不进入远端 blob，否则 GitHub Secret Scanning 会返回 `422 Secret detected in content`。
+
+## HTTP 层注意事项
+
+`tools/http.js` 当前只保留 GET 和 POST。
+
+POST 逻辑：
+
+1. 先尝试 Arc HTTP。
+2. 如果 Arc 返回状态码 `0` 或抛错，使用 Java `URLConnection` fallback。
+3. fallback 通过公开父类反射调用方法，避免 Rhino 访问 `sun.net.www.protocol.https.HttpsURLConnectionImpl` 触发 Java 模块访问错误。
+
+不要随意改回 `contentStream`，之前 GitHub POST 会出现 `status 0`。
+
+## 已删除的旧文件
+
+以下重复或旧版 UI 文件已删除：
+
+```text
+src/scripts/ui/main.js
+src/scripts/ui/cloudSetting.js
+src/scripts/ui/player.js
+src/scripts/ui/about.js
+```
+
+以下兼容门面已删除：
+
+```text
+src/scripts/core/cloud.js
+```
+
+如果之后看到旧文档提到这些文件，应以当前结构为准。
+
+## 验证方式
+
+语法检查：
+
+```powershell
+Get-ChildItem -Path src\scripts -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }
+```
+
+引用检查：
+
+```powershell
+rg "bettersave/core/cloud" src\scripts
+rg "cloud\.writeSave|cloud\.getSave|cloud\.removeSave|cloud\.test\(" src\scripts
+```
+
+预期不应有输出。
+
+运行时手动验证建议：
+
+1. 打开 Mindustry，进入 BetterSave 云存档设置。
+2. 填入 GitHub token、owner、repo、branch。
+3. 点击测试。
+4. 点击上传，确认窗口不再长时间未响应。
+5. 查看 GitHub 仓库是否出现 `config/`、`saves/`、`players/`。
+6. 确认仓库中没有 `config/cloudsave.json`。
+7. 在另一个本地环境或清空本地同步目录后测试下载。
+
+## 后续重构建议
+
+优先级从高到低：
+
+1. 将 `core/config.js` 拆成 `core/paths.js` 和 `core/configStore.js`。
+2. 将 `tools/file.js`、`tools/http.js`、`tools/type.js` 迁到 `platform/`。
+3. 将 `core/save.js` 改名为 `core/saveArchive.js`。
+4. 将 `core/setting.js` 改名为 `core/settingsArchive.js`。
+5. 将 `core/player.js` 改名为 `core/playerProfiles.js`。
+6. 给 GitHub 同步增加 hash 对比，避免每次重新上传所有 blob。
+
+不要一次性大改全部 require。建议保留小步提交，每步都进游戏测试上传和下载。
