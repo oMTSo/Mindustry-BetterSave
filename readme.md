@@ -1,4 +1,4 @@
-![7b5ceff2262bc296ac30a751a9cca9dd](https://raw.githubusercontent.com/oMTSo/images/main/img/20260705044659958.png?token=BPTRRPEJ437UB2E4I5KJD23KJFYYC)
+![7b5ceff2262bc296ac30a751a9cca9dd](https://raw.githubusercontent.com/oMTSo/images/main/img/20260705045622656.png)
 
 # BetterSave
 
