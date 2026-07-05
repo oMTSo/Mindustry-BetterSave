@@ -337,3 +337,36 @@ BetterSave 当前版本仍处于开发阶段。核心云同步流程已经改为
 - 更好的上传性能
 - 更完整的错误提示
 - 对其他 Git 服务的适配
+
+
+
+## 致谢与开源许可 (Credits & License)
+
+本模组的整体基于 **MIT License** 开源。
+
+同时，本模组在开发过程中参考并复用了项目 [savemaster](这里可以贴上原作者项目的GitHub链接) 的核心序列化、反序列化以及基础文件读写函数。非常感谢原作者 **Wxp** 的开源贡献！
+
+根据 MIT 开源协议的要求，以下保留原作者的版权声明：
+
+```text
+MIT License
+
+Copyright (c) 2024 Wxp
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
