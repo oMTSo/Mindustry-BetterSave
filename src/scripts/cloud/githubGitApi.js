@@ -172,6 +172,24 @@ function findTreeBlob(tree, path) {
     return null;
 }
 
+function normalizeProgress(progress) {
+    progress = progress || {};
+    return {
+        current: progress.current || 0,
+        total: progress.total || 0,
+        onProgress: progress.onProgress || null
+    };
+}
+
+function progressCall(progress, current, total, path) {
+    if (!progress || typeof progress.onProgress != 'function') return;
+    progress.onProgress({
+        current: current,
+        total: total,
+        path: path
+    });
+}
+
 exports.testRepository = (conf) => {
     try {
         let meta = getRequestMeta(conf, '');
@@ -185,8 +203,9 @@ exports.testRepository = (conf) => {
     }
 };
 
-exports.replaceBranchTree = (conf, localFiles, message, cancelToken) => {
+exports.replaceBranchTree = (conf, localFiles, message, cancelToken, progress) => {
     ensureGithubProvider(conf);
+    progress = normalizeProgress(progress);
 
     checkCancelled(cancelToken);
     let headRef = getHeadRef(conf);
@@ -197,8 +216,13 @@ exports.replaceBranchTree = (conf, localFiles, message, cancelToken) => {
     for (let f of localFiles) {
         checkCancelled(cancelToken);
         if (typeof f.makeData == 'function') f.makeData();
-        let blob = f.blobSha ? { sha: f.blobSha } : createBlob(conf, f.data);
+        let reused = !!f.blobSha;
+        let blob = reused ? { sha: f.blobSha } : createBlob(conf, f.data);
         checkCancelled(cancelToken);
+        if (!reused && f.path !== 'meta/sync.json') {
+            progress.current++;
+            progressCall(progress, progress.current, progress.total, f.path);
+        }
         entries.push({
             path: f.path,
             mode: '100644',
@@ -230,8 +254,9 @@ exports.readBranchState = (conf, cancelToken) => {
     };
 };
 
-exports.readBranchFiles = (conf, paths, cancelToken, tree) => {
+exports.readBranchFiles = (conf, paths, cancelToken, tree, progress) => {
     if (!tree) tree = readBranchTree(conf, cancelToken);
+    progress = normalizeProgress(progress);
     let files = [];
     let pathFilter = null;
 
@@ -243,6 +268,7 @@ exports.readBranchFiles = (conf, paths, cancelToken, tree) => {
     for (let item of tree.tree) {
         checkCancelled(cancelToken);
         if (item.type !== 'blob') continue;
+        if (item.path === 'meta/sync.json') continue;
         if (pathFilter && !pathFilter[item.path]) continue;
         let blob = fetchBlob(conf, item.sha);
         checkCancelled(cancelToken);
@@ -250,6 +276,8 @@ exports.readBranchFiles = (conf, paths, cancelToken, tree) => {
             path: item.path,
             data: decodeBlobContent(blob)
         });
+        progress.current++;
+        progressCall(progress, progress.current, progress.total, item.path);
     }
 
     checkCancelled(cancelToken);

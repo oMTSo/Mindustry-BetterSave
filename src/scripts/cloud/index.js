@@ -178,6 +178,35 @@ function changedRemotePaths(remoteMeta, localManifest) {
     return paths;
 }
 
+function uploadProgressTotal(files) {
+    let total = 0;
+    for (let f of files) {
+        if (f.path === localSnapshot.remoteSyncPath) continue;
+        if (f.blobSha) continue;
+        total++;
+    }
+    return total;
+}
+
+function downloadProgressTotal(remoteState, paths) {
+    if (paths) return paths.length;
+    let total = 0;
+    for (let item of remoteState.tree.tree) {
+        if (item.type !== 'blob') continue;
+        if (item.path === localSnapshot.remoteSyncPath) continue;
+        total++;
+    }
+    return total;
+}
+
+function makeProgressReporter(onProgress, phase, cancelToken) {
+    return (progress) => {
+        if (!onProgress || isTokenCancelled(cancelToken)) return;
+        progress.phase = phase;
+        postMain(onProgress, progress);
+    };
+}
+
 exports.checkRemoteUpdateAsync = (onSuccess, onError) => {
     let conf = cloudConfig.read();
     if (!cloudConfig.isEnable(conf)) {
@@ -202,6 +231,7 @@ exports.uploadSavesAsync = (options, onSuccess, onError, onConflict) => {
     }
     options = options || {};
     let cancelToken = options.cancelToken;
+    let onProgress = options.onProgress;
 
     let conf = cloudConfig.read();
     if (!cloudConfig.isEnable(conf)) {
@@ -255,10 +285,15 @@ exports.uploadSavesAsync = (options, onSuccess, onError, onConflict) => {
             checkCancelled(cancelToken);
             applyReusableBlobShas(localFiles, remoteMeta);
             let metaFile = localSnapshot.makeMetaFile(localFiles);
+            let progressTotal = uploadProgressTotal(localFiles);
             localFiles.push(metaFile);
             checkCancelled(cancelToken);
 
-            github.replaceBranchTree(conf, localFiles, 'Full cloud sync via bettersave', cancelToken);
+            github.replaceBranchTree(conf, localFiles, 'Full cloud sync via bettersave', cancelToken, {
+                current: 0,
+                total: progressTotal,
+                onProgress: makeProgressReporter(onProgress, 'upload', cancelToken)
+            });
             metaFile.makeData();
             localSnapshot.writeLocalMeta(metaFile.meta);
             cloudConfig.updateLastSaveTime();
@@ -277,6 +312,7 @@ exports.downloadSavesAsync = (options, onSuccess, onError, onConflict) => {
     }
     options = options || {};
     let cancelToken = options.cancelToken;
+    let onProgress = options.onProgress;
 
     let conf = cloudConfig.read();
     if (!cloudConfig.isEnable(conf)) {
@@ -299,10 +335,15 @@ exports.downloadSavesAsync = (options, onSuccess, onError, onConflict) => {
         let remoteState = github.readBranchState(conf, cancelToken);
         let localManifest = localSnapshot.collectLocalFileManifest(cancelToken);
         let paths = changedRemotePaths(remoteState.meta, localManifest);
+        let progressTotal = downloadProgressTotal(remoteState, paths);
         checkCancelled(cancelToken);
         return {
             conflict: null,
-            remoteFiles: github.readBranchFiles(conf, paths, cancelToken, remoteState.tree),
+            remoteFiles: github.readBranchFiles(conf, paths, cancelToken, remoteState.tree, {
+                current: 0,
+                total: progressTotal,
+                onProgress: makeProgressReporter(onProgress, 'download', cancelToken)
+            }),
             remoteMeta: remoteState.meta || state.remote
         };
     }, (result) => {

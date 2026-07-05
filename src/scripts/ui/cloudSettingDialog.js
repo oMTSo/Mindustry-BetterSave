@@ -18,6 +18,11 @@ function hideLoading() {
     Vars.ui.loadfrag.hide();
 }
 
+function progressText(key, progress) {
+    if (!progress || !progress.total || progress.total <= 0) return Core.bundle.get(key);
+    return Core.bundle.get(key) + ' ' + progress.current + '/' + progress.total;
+}
+
 function showCancelableLoading(key, cancelToken) {
     showLoading(key);
     Vars.ui.loadfrag.setButton(() => {
@@ -25,6 +30,22 @@ function showCancelableLoading(key, cancelToken) {
         hideLoading();
         showLoading('cloudSave.cancelling');
     });
+}
+
+function showCancelableProgress(key, cancelToken, progress) {
+    Vars.ui.loadfrag.show(progressText(key, progress));
+    Vars.ui.loadfrag.setButton(() => {
+        cancelToken.cancel();
+        hideLoading();
+        showLoading('cloudSave.cancelling');
+    });
+}
+
+function makeProgressHandler(key, cancelToken) {
+    return (progress) => {
+        if (cancelToken.isCancelled()) return;
+        showCancelableProgress(key, cancelToken, progress);
+    };
 }
 
 function showCancelableTestLoading(onCancel) {
@@ -83,7 +104,11 @@ function handleCloudError(failKey, e) {
 function uploadCloud(force) {
     let cancelToken = cloud.createCancelToken();
     showCancelableLoading('cloudSave.syncingTo', cancelToken);
-    cloud.uploadSavesAsync({ force: force, cancelToken: cancelToken }, () => {
+    cloud.uploadSavesAsync({
+        force: force,
+        cancelToken: cancelToken,
+        onProgress: makeProgressHandler('cloudSave.syncingTo', cancelToken)
+    }, () => {
         hideLoading();
         Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
     }, (e) => {
@@ -99,7 +124,11 @@ function uploadCloud(force) {
 function downloadCloud(force) {
     let cancelToken = cloud.createCancelToken();
     showCancelableLoading('cloudSave.syncingFrom', cancelToken);
-    cloud.downloadSavesAsync({ force: force, cancelToken: cancelToken }, () => {
+    cloud.downloadSavesAsync({
+        force: force,
+        cancelToken: cancelToken,
+        onProgress: makeProgressHandler('cloudSave.syncingFrom', cancelToken)
+    }, () => {
         hideLoading();
         Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
     }, (e) => {
