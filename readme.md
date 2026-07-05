@@ -2,6 +2,8 @@
 
 # BetterSave
 
+- looking for [English manual](https://github.com/oMTSo/Mindustry-BetterSave/blob/master/README_EN.md) ?
+
 BetterSave 是一个 Mindustry 脚本模组，用于增强本地存档管理，并提供基于 GitHub 或 Gitee 仓库的云存档同步功能。
 
 本模组由 SaveMaster 改造而来，沿用了 SaveMaster 中不少基础函数、存档打包思路和 UI 结构。在此基础上，BetterSave 增加了多玩家档案管理、Git 仓库云同步、同步状态检查和更完整的云端覆盖流程。
@@ -422,7 +424,7 @@ BetterSave 当前版本仍处于开发阶段。核心云同步流程已经支持
 
 本模组的整体基于 **MIT License** 开源。
 
-同时，本模组在开发过程中参考并复用了项目 [savemaster](这里可以贴上原作者项目的GitHub链接) 的核心序列化、反序列化以及基础文件读写函数。非常感谢原作者 **Wxp** 的开源贡献！
+同时，本模组在开发过程中参考并复用了项目 [savemaster](https://github.com/DSFdsfWxp/savemaster/tree/main) 的核心序列化、反序列化以及基础文件读写函数。非常感谢原作者 **Wxp** 的开源贡献！
 
 根据 MIT 开源协议的要求，以下保留原作者的版权声明：
 
