@@ -221,6 +221,24 @@ function makeProgressReporter(onProgress, phase, cancelToken) {
     };
 }
 
+function compareSaveTimeDesc(a, b) {
+    for (let i = 0; i < 6; i++) {
+        if (a.time[i] !== b.time[i]) return b.time[i] - a.time[i];
+    }
+    return 0;
+}
+
+function applyLatestLocalSave() {
+    let saves = save.readAll();
+    if (saves.length == 0) return false;
+
+    saves.sort(compareSaveTimeDesc);
+    let latest = saves[0];
+    latest.apply();
+    print('Applied latest downloaded save: ' + latest.save.name);
+    return true;
+}
+
 exports.checkRemoteUpdateAsync = (onSuccess, onError) => {
     let conf = cloudConfig.read();
     if (!cloudConfig.isEnable(conf)) {
@@ -378,7 +396,7 @@ exports.downloadSavesAsync = (options, onSuccess, onError, onConflict) => {
             checkCancelled(cancelToken);
             localSnapshot.replaceLocalFiles(result.remoteFiles, result.remoteMeta);
             if (result.remoteMeta) localSnapshot.writeLocalMeta(result.remoteMeta);
-            control.reloadSave();
+            if (!applyLatestLocalSave()) control.reloadSave();
             print('Download Sync Complete. Files: ' + result.remoteFiles.length);
             if (onSuccess) onSuccess(result.remoteFiles.length);
         } catch (e) {
