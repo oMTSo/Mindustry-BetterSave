@@ -29,6 +29,53 @@ exports.testAsync = (obj, onSuccess, onError) => {
     }, onSuccess, onError);
 };
 
+function makeCancelError() {
+    let e = new Error('Cloud sync cancelled.');
+    e.cancelled = true;
+    return e;
+}
+
+function checkCancelled(cancelToken) {
+    if (!cancelToken) return;
+    if (typeof cancelToken.throwIfCancelled == 'function') {
+        cancelToken.throwIfCancelled();
+        return;
+    }
+    if (cancelToken.cancelled) throw makeCancelError();
+}
+
+function isTokenCancelled(cancelToken) {
+    if (!cancelToken) return false;
+    if (typeof cancelToken.isCancelled == 'function') return cancelToken.isCancelled();
+    return cancelToken.cancelled === true;
+}
+
+exports.createCancelToken = () => {
+    let cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
+    let committed = new java.util.concurrent.atomic.AtomicBoolean(false);
+    return {
+        cancel: () => {
+            cancelled.set(true);
+        },
+        isCancelled: () => {
+            return cancelled.get();
+        },
+        markCommitted: () => {
+            committed.set(true);
+        },
+        isCommitted: () => {
+            return committed.get();
+        },
+        throwIfCancelled: () => {
+            if (cancelled.get() && !committed.get()) throw makeCancelError();
+        }
+    };
+};
+
+exports.isCancelled = (e) => {
+    return e && e.cancelled === true;
+};
+
 function concludeSyncState(state) {
     if (state.remoteTime > state.localBaseTime && state.localChanged) return 'bothChanged';
     if (state.remoteTime > state.localBaseTime) return 'localExpired';
@@ -65,7 +112,7 @@ function runBackground(task, onSuccess, onError) {
             let result = task();
             postMain(onSuccess, result);
         } catch (e) {
-            print(e);
+            if (!exports.isCancelled(e)) print(e);
             postMain(onError, e);
         }
     });
@@ -78,12 +125,16 @@ function metaTime(meta) {
     return t;
 }
 
-function syncState(conf) {
+function syncState(conf, cancelToken) {
+    checkCancelled(cancelToken);
     let localMeta = localSnapshot.readLocalMeta();
-    let remoteMeta = github.readRemoteMeta(conf);
+    checkCancelled(cancelToken);
+    let remoteMeta = github.readRemoteMeta(conf, cancelToken);
+    checkCancelled(cancelToken);
     let localBaseTime = metaTime(localMeta);
     let localSyncedTime = metaTime({ updatedAt: localMeta.localSyncedAt });
     let latestLocalModifiedTime = localSnapshot.latestLocalModifiedTime();
+    checkCancelled(cancelToken);
     let localChanged = latestLocalModifiedTime > localSyncedTime + 2000;
 
     return {
@@ -120,6 +171,7 @@ exports.uploadSavesAsync = (options, onSuccess, onError, onConflict) => {
         options = {};
     }
     options = options || {};
+    let cancelToken = options.cancelToken;
 
     let conf = cloudConfig.read();
     if (!cloudConfig.isEnable(conf)) {
@@ -128,8 +180,10 @@ exports.uploadSavesAsync = (options, onSuccess, onError, onConflict) => {
     }
 
     runBackground(() => {
+        checkCancelled(cancelToken);
         if (!options.force) {
-            let state = syncState(conf);
+            let state = syncState(conf, cancelToken);
+            checkCancelled(cancelToken);
             if (state.remoteTime > state.localBaseTime) {
                 return {
                     conflict: 'localExpired',
@@ -137,30 +191,40 @@ exports.uploadSavesAsync = (options, onSuccess, onError, onConflict) => {
                 };
             }
         }
+        checkCancelled(cancelToken);
         return { conflict: null };
     }, (check) => {
+        if (isTokenCancelled(cancelToken)) {
+            if (onError) onError(makeCancelError());
+            return;
+        }
         if (check.conflict) {
             if (onConflict) onConflict(check);
             return;
         }
 
         try {
+            checkCancelled(cancelToken);
             save.make('cloudsave').writeToSavePath();
+            checkCancelled(cancelToken);
         } catch (e) {
-            print(e);
+            if (!exports.isCancelled(e)) print(e);
             if (onError) onError(e);
             return;
         }
 
         runBackground(() => {
+            checkCancelled(cancelToken);
             let localFiles = localSnapshot.collectUploadFiles();
+            checkCancelled(cancelToken);
             let metaFile = localSnapshot.makeMetaFile(localFiles.length);
             localFiles.push({
                 path: metaFile.path,
                 data: metaFile.data
             });
+            checkCancelled(cancelToken);
 
-            github.replaceBranchTree(conf, localFiles, 'Full cloud sync via bettersave');
+            github.replaceBranchTree(conf, localFiles, 'Full cloud sync via bettersave', cancelToken);
             localSnapshot.writeLocalMeta(metaFile.meta);
             cloudConfig.updateLastSaveTime();
             print('Upload Sync Complete. Files: ' + localFiles.length);
@@ -177,6 +241,7 @@ exports.downloadSavesAsync = (options, onSuccess, onError, onConflict) => {
         options = {};
     }
     options = options || {};
+    let cancelToken = options.cancelToken;
 
     let conf = cloudConfig.read();
     if (!cloudConfig.isEnable(conf)) {
@@ -185,7 +250,9 @@ exports.downloadSavesAsync = (options, onSuccess, onError, onConflict) => {
     }
 
     runBackground(() => {
-        let state = syncState(conf);
+        checkCancelled(cancelToken);
+        let state = syncState(conf, cancelToken);
+        checkCancelled(cancelToken);
         if (!options.force && (state.localChanged || state.localBaseTime > state.remoteTime)) {
             return {
                 conflict: 'remoteExpired',
@@ -193,26 +260,33 @@ exports.downloadSavesAsync = (options, onSuccess, onError, onConflict) => {
             };
         }
 
+        checkCancelled(cancelToken);
         return {
             conflict: null,
-            remoteFiles: github.readBranchFiles(conf),
+            remoteFiles: github.readBranchFiles(conf, cancelToken),
             remoteMeta: state.remote
         };
     }, (result) => {
+        if (isTokenCancelled(cancelToken)) {
+            if (onError) onError(makeCancelError());
+            return;
+        }
         if (result.conflict) {
             if (onConflict) onConflict(result);
             return;
         }
 
         try {
+            checkCancelled(cancelToken);
             control.closeCurrentMap(false);
+            checkCancelled(cancelToken);
             localSnapshot.replaceLocalFiles(result.remoteFiles);
             if (result.remoteMeta) localSnapshot.writeLocalMeta(result.remoteMeta);
             control.reloadSave();
             print('Download Sync Complete. Files: ' + result.remoteFiles.length);
             if (onSuccess) onSuccess(result.remoteFiles.length);
         } catch (e) {
-            print(e);
+            if (!exports.isCancelled(e)) print(e);
             if (onError) onError(e);
         }
     }, onError);

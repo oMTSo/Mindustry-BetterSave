@@ -6,6 +6,7 @@ var cloudSaveDialog = null;
 var conf = {};
 var confModified = false;
 var saveBtn = null;
+var testLoadingId = 0;
 
 exports.dialog = cloudSaveDialog;
 
@@ -15,6 +16,23 @@ function showLoading(key) {
 
 function hideLoading() {
     Vars.ui.loadfrag.hide();
+}
+
+function showCancelableLoading(key, cancelToken) {
+    showLoading(key);
+    Vars.ui.loadfrag.setButton(() => {
+        cancelToken.cancel();
+        hideLoading();
+        showLoading('cloudSave.cancelling');
+    });
+}
+
+function showCancelableTestLoading(onCancel) {
+    showLoading('cloudConfig.test');
+    Vars.ui.loadfrag.setButton(() => {
+        hideLoading();
+        onCancel();
+    });
 }
 
 function formatSyncTime(time) {
@@ -52,15 +70,24 @@ function makeTestReport(result) {
         Core.bundle.format('cloudConfig.test.result', syncConclusionText(result.conclusion));
 }
 
+function handleCloudError(failKey, e) {
+    hideLoading();
+    if (cloud.isCancelled(e)) {
+        Vars.ui.showInfoFade("@cloudSave.cancelled");
+        return;
+    }
+    print(e);
+    Vars.ui.showOkText('@error', Core.bundle.get(failKey) + e.toString(), () => { });
+}
+
 function uploadCloud(force) {
-    showLoading('cloudSave.syncingTo');
-    cloud.uploadSavesAsync({ force: force }, () => {
+    let cancelToken = cloud.createCancelToken();
+    showCancelableLoading('cloudSave.syncingTo', cancelToken);
+    cloud.uploadSavesAsync({ force: force, cancelToken: cancelToken }, () => {
         hideLoading();
         Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
     }, (e) => {
-        hideLoading();
-        print(e);
-        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncToFail') + e.toString(), () => { });
+        handleCloudError('cloudSave.syncToFail', e);
     }, () => {
         hideLoading();
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.localExpired", () => {
@@ -70,14 +97,13 @@ function uploadCloud(force) {
 }
 
 function downloadCloud(force) {
-    showLoading('cloudSave.syncingFrom');
-    cloud.downloadSavesAsync({ force: force }, () => {
+    let cancelToken = cloud.createCancelToken();
+    showCancelableLoading('cloudSave.syncingFrom', cancelToken);
+    cloud.downloadSavesAsync({ force: force, cancelToken: cancelToken }, () => {
         hideLoading();
         Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
     }, (e) => {
-        hideLoading();
-        print(e);
-        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncFromFail') + e.toString(), () => { });
+        handleCloudError('cloudSave.syncFromFail', e);
     }, () => {
         hideLoading();
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.remoteExpired", () => {
@@ -164,11 +190,20 @@ function rebuild() {
     cloudSaveDialog.cont.row();
 
     cloudSaveDialog.cont.button("@cloudConfig.test", Icon.play, () => {
-        showLoading('cloudConfig.test');
+        let loadingId = ++testLoadingId;
+        let cancelled = false;
+
+        showCancelableTestLoading(() => {
+            cancelled = true;
+            testLoadingId++;
+        });
+
         cloud.inspectSyncAsync(conf, (result) => {
+            if (cancelled || loadingId !== testLoadingId) return;
             hideLoading();
             Vars.ui.showOkText('@cloudConfig.test', makeTestReport(result), () => { });
         }, (e) => {
+            if (cancelled || loadingId !== testLoadingId) return;
             hideLoading();
             print(e);
             Vars.ui.showOkText('@cloudConfig.test', '@cloudConfig.test.fail', () => { });

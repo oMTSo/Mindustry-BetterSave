@@ -16,15 +16,33 @@ function hideLoading() {
     Vars.ui.loadfrag.hide();
 }
 
+function showCancelableLoading(key, cancelToken) {
+    showLoading(key);
+    Vars.ui.loadfrag.setButton(() => {
+        cancelToken.cancel();
+        hideLoading();
+        showLoading('cloudSave.cancelling');
+    });
+}
+
+function handleCloudError(failKey, e) {
+    hideLoading();
+    if (cloud.isCancelled(e)) {
+        Vars.ui.showInfoFade("@cloudSave.cancelled");
+        return;
+    }
+    print(e);
+    Vars.ui.showOkText('@error', Core.bundle.get(failKey) + e.toString(), () => { });
+}
+
 function uploadCloud(force) {
-    showLoading('cloudSave.syncingTo');
-    cloud.uploadSavesAsync({ force: force }, () => {
+    let cancelToken = cloud.createCancelToken();
+    showCancelableLoading('cloudSave.syncingTo', cancelToken);
+    cloud.uploadSavesAsync({ force: force, cancelToken: cancelToken }, () => {
         hideLoading();
         Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
     }, (e) => {
-        hideLoading();
-        print(e);
-        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncToFail') + e.toString(), () => { });
+        handleCloudError('cloudSave.syncToFail', e);
     }, () => {
         hideLoading();
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.localExpired", () => {
@@ -34,14 +52,13 @@ function uploadCloud(force) {
 }
 
 function downloadCloud(force) {
-    showLoading('cloudSave.syncingFrom');
-    cloud.downloadSavesAsync({ force: force }, () => {
+    let cancelToken = cloud.createCancelToken();
+    showCancelableLoading('cloudSave.syncingFrom', cancelToken);
+    cloud.downloadSavesAsync({ force: force, cancelToken: cancelToken }, () => {
         hideLoading();
         Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
     }, (e) => {
-        hideLoading();
-        print(e);
-        Vars.ui.showOkText('@error', Core.bundle.get('cloudSave.syncFromFail') + e.toString(), () => { });
+        handleCloudError('cloudSave.syncFromFail', e);
     }, () => {
         hideLoading();
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.remoteExpired", () => {

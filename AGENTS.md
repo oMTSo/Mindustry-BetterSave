@@ -124,6 +124,57 @@ const cloud = require('bettersave/cloud/index');
 - `本地和云端都有更新`：云端比本地同步基准新，同时本地也检测到未上传修改。
 - `本地和云端一致`：没有检测到任一侧更新。
 
+## 加载界面和取消按钮
+
+Mindustry 自带的 `Vars.ui.loadfrag` 有加载动画、遮罩和内置按钮能力。云同步相关加载状态应优先使用它，不要用新的 `BaseDialog` 替代。
+
+当前通用加载函数在 `main.js` 和 `ui/cloudSettingDialog.js` 中都是：
+
+```js
+function showLoading(key) {
+    Vars.ui.loadfrag.show(Core.bundle.get(key));
+}
+
+function hideLoading() {
+    Vars.ui.loadfrag.hide();
+}
+```
+
+注意事项：
+
+- `Vars.ui.loadfrag.show(text)` 每次都会重置加载层状态，并隐藏内置按钮。
+- 如果需要取消按钮，必须先 `showLoading(...)`，再调用 `Vars.ui.loadfrag.setButton(...)`。
+- `setButton` 显示的是 `loadfrag` 自带的 `@cancel` 按钮，按钮位于加载内容下方，不需要自己创建新 Dialog。
+- 不要再创建单独的半透明 `BaseDialog` 覆盖加载层；之前这样会叠两层遮罩，并且取消按钮容易被挡住。
+- 不要调用 `BaseDialog.setTitle(...)`；Mindustry 的 `BaseDialog` 没有这个函数，之前已经导致过 `Cannot find function setTitle in object BaseDialog` 崩溃。
+- 如果需要把加载文字改成“正在取消”等状态，按当前约定先 `hideLoading()`，再 `showLoading(newKey)`，最后任务结束时仍然必须 `hideLoading()`。
+
+目前只有云存档设置里的“测试”按钮实现了取消：
+
+```js
+function showCancelableTestLoading(onCancel) {
+    showLoading('cloudConfig.test');
+    Vars.ui.loadfrag.setButton(() => {
+        hideLoading();
+        onCancel();
+    });
+}
+```
+
+测试取消的性质：
+
+- 取消按钮只取消当前 UI 等待，不会真正中断已经发出的 HTTP 请求。
+- 后台线程结束后会回调到主线程，但 `cloudSettingDialog.js` 用 `testLoadingId` 和 `cancelled` 标记忽略过期回调，因此不会再弹“测试成功/测试失败”。
+- 连续点击测试时，旧请求返回也会被 `testLoadingId` 忽略，避免旧结果覆盖新结果。
+- 这个实现目前只用于测试按钮，不影响上传、下载、清空云端。
+
+如果以后给上传或下载也加取消，不能只隐藏 UI。上传/下载会修改本地或云端状态，必须同时设计后台取消标记，并在以下边界检查：
+
+- 上传：保存本地 `cloudsave` 前、扫描本地文件前、每次创建 blob 前后、创建 tree/commit 前、updateRef 前。
+- 下载：读取远端 tree 前、每次下载 blob 前后、关闭地图前、替换本地文件前。
+- 一旦进入本地替换阶段，取消策略要非常谨慎，避免只替换了一半导致本地状态损坏。
+- 上传一旦执行到 `updateRef` 成功，云端已经整体切换到新 commit，之后只能视为上传成功或提示用户重新同步。
+
 ## GitHub API 注意事项
 
 当前只支持 GitHub。Gitee 配置入口还保留在 UI 上，但 Git Tree 全量同步暂不支持 Gitee。
@@ -250,6 +301,26 @@ rg "cloud\.writeSave|cloud\.getSave|cloud\.removeSave|cloud\.test\(" src\scripts
 5. 查看 GitHub 仓库是否出现 `config/`、`saves/`、`players/`。
 6. 确认仓库中没有 `config/cloudsave.json`。
 7. 在另一个本地环境或清空本地同步目录后测试下载。
+
+测试按钮取消的手动验证建议：
+
+1. 打开云存档设置并点击“测试”。
+2. 加载界面应继续显示 Mindustry 原生 `loadfrag` 动画。
+3. 加载内容下方应出现原生 `取消` 按钮。
+4. 点击取消后加载界面应关闭。
+5. 如果后台测试稍后返回，不应再弹出“测试成功”或“测试失败”。
+
+Git 状态注意事项：
+
+- 这个仓库在 Windows 下可能出现 `LF will be replaced by CRLF` 或工作区 `mixed` 换行提示。
+- 如果 `git status` 显示多个文件被修改，但 `git diff --stat` 只显示少数文件，应以实际 diff 为准，不要因为状态噪声直接重置文件。
+- 提交前建议同时看：
+
+```powershell
+git diff --stat
+git diff --name-only
+git diff --check
+```
 
 ## 后续重构建议
 
