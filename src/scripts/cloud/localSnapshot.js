@@ -36,15 +36,68 @@ function makeDeviceId() {
     return new Date().getTime().toString() + '-' + Math.floor(Math.random() * 1000000000).toString();
 }
 
+function checkCancelled(cancelToken) {
+    if (!cancelToken) return;
+    if (typeof cancelToken.throwIfCancelled == 'function') {
+        cancelToken.throwIfCancelled();
+        return;
+    }
+    if (cancelToken.cancelled) {
+        let e = new Error('Cloud sync cancelled.');
+        e.cancelled = true;
+        throw e;
+    }
+}
+
+function sha256(data) {
+    let digest = java.security.MessageDigest.getInstance('SHA-256').digest(data);
+    let ret = '';
+    for (let i = 0; i < digest.length; i++) {
+        let v = digest[i];
+        if (v < 0) v += 256;
+        let s = v.toString(16);
+        if (s.length < 2) s = '0' + s;
+        ret += s;
+    }
+    return ret;
+}
+
+function fileEntry(path, data, includeData) {
+    let ret = {
+        path: path,
+        hash: sha256(data),
+        size: data.length
+    };
+    if (includeData) ret.data = data;
+    return ret;
+}
+
+function makeManifest(files) {
+    let ret = {};
+    for (let f of files) {
+        ret[f.path] = {
+            hash: f.hash || '',
+            size: f.size || 0,
+            blobSha: f.blobSha || ''
+        };
+    }
+    return ret;
+}
+
+function hasFileManifest(meta) {
+    return meta && meta.version >= 2 && meta.files;
+}
+
 function readLocalMeta() {
     if (!config.isInited()) config.init();
     return Object.assign({
-        version: 1,
+        version: 2,
         updatedAt: '',
         localSyncedAt: '',
         deviceId: makeDeviceId(),
         deviceName: 'Mindustry',
-        fileCount: 0
+        fileCount: 0,
+        files: {}
     }, config.readConfig(syncConfigName));
 }
 
@@ -54,15 +107,17 @@ function writeLocalMeta(meta) {
     config.writeConfig(syncConfigName, meta);
 }
 
-function makeUploadMeta(fileCount) {
+function makeUploadMeta(files) {
     let old = readLocalMeta();
+    let fileCount = files.length;
     return {
-        version: 1,
+        version: 2,
         updatedAt: new Date().toISOString(),
         localSyncedAt: new Date().toISOString(),
         deviceId: old.deviceId || makeDeviceId(),
         deviceName: old.deviceName || 'Mindustry',
-        fileCount: fileCount
+        fileCount: fileCount,
+        files: makeManifest(files)
     };
 }
 
@@ -88,21 +143,25 @@ function sanitizePlayerData(path) {
     }
 }
 
-function readLocalFilesInDir(dir, prefix) {
+function readLocalFilesInDir(dir, prefix, options, cancelToken) {
     let ret = [];
     if (!fs.pathExist(dir)) return ret;
 
+    options = Object.assign({
+        includeData: true,
+        sanitizePlayers: true
+    }, options || {});
+
     let lst = fs.readDir(dir);
     for (let fn of lst) {
+        checkCancelled(cancelToken);
         if (!shouldSyncLocalFile(prefix, fn)) continue;
 
         let abs = dir + '/' + fn;
         if (fs.isDir(abs)) continue;
 
-        ret.push({
-            path: prefix + '/' + fn,
-            data: prefix == 'players' ? sanitizePlayerData(abs) : fs.readFile(abs)
-        });
+        let data = prefix == 'players' && options.sanitizePlayers ? sanitizePlayerData(abs) : fs.readFile(abs);
+        ret.push(fileEntry(prefix + '/' + fn, data, options.includeData));
     }
     return ret;
 }
@@ -137,25 +196,55 @@ function latestModifiedInDir(dir, prefix) {
     return latest;
 }
 
-exports.collectUploadFiles = () => {
+function removeLocalFilesNotInManifest(dir, prefix, manifest) {
+    if (!fs.pathExist(dir)) return;
+    let lst = fs.readDir(dir);
+    for (let fn of lst) {
+        if (!shouldSyncLocalFile(prefix, fn)) continue;
+
+        let abs = dir + '/' + fn;
+        if (fs.isDir(abs)) continue;
+
+        let remotePath = prefix + '/' + fn;
+        if (typeof manifest[remotePath] == 'undefined') fs.removeFile(abs);
+    }
+}
+
+exports.collectUploadFiles = (cancelToken) => {
     if (!config.isInited()) config.init();
     save.init();
 
     let files = [];
-    files = files.concat(readLocalFilesInDir(config.configDir, 'config'));
-    files = files.concat(readLocalFilesInDir(config.saveDir, 'saves'));
-    files = files.concat(readLocalFilesInDir(config.playerDir, 'players'));
+    files = files.concat(readLocalFilesInDir(config.configDir, 'config', { includeData: true, sanitizePlayers: true }, cancelToken));
+    files = files.concat(readLocalFilesInDir(config.saveDir, 'saves', { includeData: true, sanitizePlayers: true }, cancelToken));
+    files = files.concat(readLocalFilesInDir(config.playerDir, 'players', { includeData: true, sanitizePlayers: true }, cancelToken));
     return files;
 };
 
-exports.replaceLocalFiles = (remoteFiles) => {
+exports.collectLocalFileManifest = (cancelToken) => {
+    if (!config.isInited()) config.init();
+
+    let files = [];
+    files = files.concat(readLocalFilesInDir(config.configDir, 'config', { includeData: false, sanitizePlayers: false }, cancelToken));
+    files = files.concat(readLocalFilesInDir(config.saveDir, 'saves', { includeData: false, sanitizePlayers: false }, cancelToken));
+    files = files.concat(readLocalFilesInDir(config.playerDir, 'players', { includeData: false, sanitizePlayers: false }, cancelToken));
+    return makeManifest(files);
+};
+
+exports.replaceLocalFiles = (remoteFiles, remoteMeta) => {
     if (!config.isInited()) config.init();
 
     let preservedCloudConfig = readPreservedCloudConfig();
 
-    fs.removeFilesInDir(config.configDir);
-    fs.removeFilesInDir(config.saveDir);
-    fs.removeFilesInDir(config.playerDir);
+    if (hasFileManifest(remoteMeta)) {
+        removeLocalFilesNotInManifest(config.configDir, 'config', remoteMeta.files);
+        removeLocalFilesNotInManifest(config.saveDir, 'saves', remoteMeta.files);
+        removeLocalFilesNotInManifest(config.playerDir, 'players', remoteMeta.files);
+    } else {
+        fs.removeFilesInDir(config.configDir);
+        fs.removeFilesInDir(config.saveDir);
+        fs.removeFilesInDir(config.playerDir);
+    }
 
     for (let f of remoteFiles) {
         writeDownloadedFile(f.path, f.data);
@@ -167,18 +256,30 @@ exports.replaceLocalFiles = (remoteFiles) => {
     restorePreservedCloudConfig(preservedCloudConfig);
 };
 
-exports.makeMetaFile = (fileCount) => {
-    let meta = makeUploadMeta(fileCount);
-    return {
+exports.makeMetaFile = (files) => {
+    let manifestFiles = files.slice();
+    let meta = makeUploadMeta(files);
+    let ret = {
         path: remoteSyncPath,
-        data: new java.lang.String(JSON.stringify(meta)).getBytes('UTF-8'),
         meta: meta
     };
+    ret.makeData = () => {
+        ret.meta.fileCount = manifestFiles.length;
+        ret.meta.files = makeManifest(manifestFiles);
+        ret.data = new java.lang.String(JSON.stringify(ret.meta)).getBytes('UTF-8');
+        ret.hash = sha256(ret.data);
+        ret.size = ret.data.length;
+        return ret.data;
+    };
+    ret.makeData();
+    return ret;
 };
 
 exports.readLocalMeta = readLocalMeta;
 exports.writeLocalMeta = writeLocalMeta;
 exports.remoteSyncPath = remoteSyncPath;
+exports.hasFileManifest = hasFileManifest;
+exports.makeManifest = makeManifest;
 
 exports.latestLocalModifiedTime = () => {
     if (!config.isInited()) config.init();

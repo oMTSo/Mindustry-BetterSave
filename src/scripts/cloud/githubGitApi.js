@@ -150,6 +150,28 @@ function readBranchTree(conf, cancelToken) {
     return fetchRecursiveTree(conf, commit.tree.sha);
 }
 
+function decodeBlobContent(blob) {
+    return java.util.Base64.getMimeDecoder().decode(blob.content.replace(/\n/g, ''));
+}
+
+function readTextBlob(conf, sha, cancelToken) {
+    checkCancelled(cancelToken);
+    let blob = fetchBlob(conf, sha);
+    checkCancelled(cancelToken);
+    return new java.lang.String(
+        decodeBlobContent(blob),
+        java.nio.charset.Charset.forName('UTF-8')
+    ).toString();
+}
+
+function findTreeBlob(tree, path) {
+    for (let item of tree.tree) {
+        if (item.type !== 'blob') continue;
+        if (item.path === path) return item;
+    }
+    return null;
+}
+
 exports.testRepository = (conf) => {
     try {
         let meta = getRequestMeta(conf, '');
@@ -174,7 +196,8 @@ exports.replaceBranchTree = (conf, localFiles, message, cancelToken) => {
     let entries = [];
     for (let f of localFiles) {
         checkCancelled(cancelToken);
-        let blob = createBlob(conf, f.data);
+        if (typeof f.makeData == 'function') f.makeData();
+        let blob = f.blobSha ? { sha: f.blobSha } : createBlob(conf, f.data);
         checkCancelled(cancelToken);
         entries.push({
             path: f.path,
@@ -182,6 +205,7 @@ exports.replaceBranchTree = (conf, localFiles, message, cancelToken) => {
             type: 'blob',
             sha: blob.sha
         });
+        f.blobSha = blob.sha;
         print('Prepared cloud file: ' + f.path);
     }
 
@@ -195,18 +219,36 @@ exports.replaceBranchTree = (conf, localFiles, message, cancelToken) => {
     return commit;
 };
 
-exports.readBranchFiles = (conf, cancelToken) => {
+exports.readBranchState = (conf, cancelToken) => {
     let tree = readBranchTree(conf, cancelToken);
+    let metaItem = findTreeBlob(tree, 'meta/sync.json');
+    let remoteMeta = null;
+    if (metaItem) remoteMeta = JSON.parse(readTextBlob(conf, metaItem.sha, cancelToken));
+    return {
+        tree: tree,
+        meta: remoteMeta
+    };
+};
+
+exports.readBranchFiles = (conf, paths, cancelToken, tree) => {
+    if (!tree) tree = readBranchTree(conf, cancelToken);
     let files = [];
+    let pathFilter = null;
+
+    if (paths) {
+        pathFilter = {};
+        for (let p of paths) pathFilter[p] = true;
+    }
 
     for (let item of tree.tree) {
         checkCancelled(cancelToken);
         if (item.type !== 'blob') continue;
+        if (pathFilter && !pathFilter[item.path]) continue;
         let blob = fetchBlob(conf, item.sha);
         checkCancelled(cancelToken);
         files.push({
             path: item.path,
-            data: java.util.Base64.getMimeDecoder().decode(blob.content.replace(/\n/g, ''))
+            data: decodeBlobContent(blob)
         });
     }
 
@@ -216,18 +258,7 @@ exports.readBranchFiles = (conf, cancelToken) => {
 
 exports.readRemoteMeta = (conf, cancelToken) => {
     let tree = readBranchTree(conf, cancelToken);
-    for (let item of tree.tree) {
-        checkCancelled(cancelToken);
-        if (item.type !== 'blob') continue;
-        if (item.path !== 'meta/sync.json') continue;
-
-        let blob = fetchBlob(conf, item.sha);
-        checkCancelled(cancelToken);
-        let text = new java.lang.String(
-            java.util.Base64.getMimeDecoder().decode(blob.content.replace(/\n/g, '')),
-            java.nio.charset.Charset.forName('UTF-8')
-        ).toString();
-        return JSON.parse(text);
-    }
+    let item = findTreeBlob(tree, 'meta/sync.json');
+    if (item) return JSON.parse(readTextBlob(conf, item.sha, cancelToken));
     return null;
 };

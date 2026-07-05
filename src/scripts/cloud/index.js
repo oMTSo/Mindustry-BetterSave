@@ -148,6 +148,36 @@ function syncState(conf, cancelToken) {
     };
 }
 
+function remoteManifest(meta) {
+    if (!localSnapshot.hasFileManifest(meta)) return {};
+    return meta.files;
+}
+
+function applyReusableBlobShas(localFiles, remoteMeta) {
+    let files = remoteManifest(remoteMeta);
+    for (let f of localFiles) {
+        let old = files[f.path];
+        if (!old) continue;
+        if (old.hash !== f.hash) continue;
+        if (!old.blobSha) continue;
+        f.blobSha = old.blobSha;
+    }
+}
+
+function changedRemotePaths(remoteMeta, localManifest) {
+    let paths = [];
+    if (!localSnapshot.hasFileManifest(remoteMeta)) return null;
+
+    let files = remoteMeta.files;
+    for (let path in files) {
+        if (path === localSnapshot.remoteSyncPath) continue;
+        let remote = files[path];
+        let local = localManifest[path];
+        if (!local || local.hash !== remote.hash) paths.push(path);
+    }
+    return paths;
+}
+
 exports.checkRemoteUpdateAsync = (onSuccess, onError) => {
     let conf = cloudConfig.read();
     if (!cloudConfig.isEnable(conf)) {
@@ -190,6 +220,10 @@ exports.uploadSavesAsync = (options, onSuccess, onError, onConflict) => {
                     state: state
                 };
             }
+            return {
+                conflict: null,
+                remoteMeta: state.remote
+            };
         }
         checkCancelled(cancelToken);
         return { conflict: null };
@@ -215,16 +249,17 @@ exports.uploadSavesAsync = (options, onSuccess, onError, onConflict) => {
 
         runBackground(() => {
             checkCancelled(cancelToken);
-            let localFiles = localSnapshot.collectUploadFiles();
+            let localFiles = localSnapshot.collectUploadFiles(cancelToken);
             checkCancelled(cancelToken);
-            let metaFile = localSnapshot.makeMetaFile(localFiles.length);
-            localFiles.push({
-                path: metaFile.path,
-                data: metaFile.data
-            });
+            let remoteMeta = check.remoteMeta || github.readRemoteMeta(conf, cancelToken);
+            checkCancelled(cancelToken);
+            applyReusableBlobShas(localFiles, remoteMeta);
+            let metaFile = localSnapshot.makeMetaFile(localFiles);
+            localFiles.push(metaFile);
             checkCancelled(cancelToken);
 
             github.replaceBranchTree(conf, localFiles, 'Full cloud sync via bettersave', cancelToken);
+            metaFile.makeData();
             localSnapshot.writeLocalMeta(metaFile.meta);
             cloudConfig.updateLastSaveTime();
             print('Upload Sync Complete. Files: ' + localFiles.length);
@@ -261,10 +296,14 @@ exports.downloadSavesAsync = (options, onSuccess, onError, onConflict) => {
         }
 
         checkCancelled(cancelToken);
+        let remoteState = github.readBranchState(conf, cancelToken);
+        let localManifest = localSnapshot.collectLocalFileManifest(cancelToken);
+        let paths = changedRemotePaths(remoteState.meta, localManifest);
+        checkCancelled(cancelToken);
         return {
             conflict: null,
-            remoteFiles: github.readBranchFiles(conf, cancelToken),
-            remoteMeta: state.remote
+            remoteFiles: github.readBranchFiles(conf, paths, cancelToken, remoteState.tree),
+            remoteMeta: remoteState.meta || state.remote
         };
     }, (result) => {
         if (isTokenCancelled(cancelToken)) {
@@ -280,7 +319,7 @@ exports.downloadSavesAsync = (options, onSuccess, onError, onConflict) => {
             checkCancelled(cancelToken);
             control.closeCurrentMap(false);
             checkCancelled(cancelToken);
-            localSnapshot.replaceLocalFiles(result.remoteFiles);
+            localSnapshot.replaceLocalFiles(result.remoteFiles, result.remoteMeta);
             if (result.remoteMeta) localSnapshot.writeLocalMeta(result.remoteMeta);
             control.reloadSave();
             print('Download Sync Complete. Files: ' + result.remoteFiles.length);

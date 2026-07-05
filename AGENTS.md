@@ -6,7 +6,7 @@ BetterSave 是 Mindustry 的脚本模组，主要功能是：
 
 - 将当前游戏存档、蓝图和必要的战役设置打包成 `.smsf` 备份。
 - 管理多个本地玩家档案。
-- 使用 GitHub 仓库作为云存档后端，实现全量上传、全量下载和清空云端。
+- 使用 GitHub 仓库作为云存档后端，实现覆盖式上传、覆盖式下载和清空云端。传输层会根据文件 hash 增量复用或下载文件。
 
 代码入口是 `src/scripts/main.js`。模组加载后会注册 UI，并在启动和战役退出时根据配置询问是否执行云同步。
 
@@ -55,7 +55,14 @@ const cloud = require('bettersave/cloud/index');
 
 ## 云同步设计
 
-当前云同步是全量覆盖，不是增量同步。
+当前云同步保持全量覆盖语义，但传输层是增量的。
+
+含义：
+
+- 上传仍然表示“用当前本地同步内容覆盖云端”。
+- 下载仍然表示“用当前云端同步内容覆盖本地”。
+- 不做自动合并，也不做逐文件冲突合并。
+- 增量只用于减少 GitHub blob 上传和下载：未变化文件复用远端 `blobSha` 或保留本地文件。
 
 上传流程：
 
@@ -64,23 +71,26 @@ const cloud = require('bettersave/cloud/index');
 3. 用户确认覆盖后，后台线程扫描本地 `betterSave/config`、`betterSave/saves`、`betterSave/players`。
 4. 过滤 `config/cloudsave.json`、`config/sync.json` 和 `config/editor.json`，避免上传本地 token、本地状态文件和编辑器临时清理状态。
 5. 清洗玩家 `.smsf` 中历史残留的 `../bettersave/config/cloudsave.json`。
-6. 生成远端 `meta/sync.json`。
-7. 逐个创建 GitHub blob。
-8. 创建一棵只包含当前本地同步文件的新 tree。
-9. 创建 commit。
-10. 用 GraphQL `updateRef` 将分支指向新 commit。
+6. 对清洗后的上传数据计算 SHA-256，并读取远端 `meta/sync.json` 中的 `files` manifest。
+7. 如果同路径文件 hash 未变化且远端 manifest 有 `blobSha`，复用该 blob；只有变化文件才创建 GitHub blob。
+8. 生成新版远端 `meta/sync.json`，其中记录每个同步文件的 `hash`、`size` 和 `blobSha`。
+9. 创建一棵只包含当前本地同步文件和 `meta/sync.json` 的新 tree。
+10. 创建 commit。
+11. 用 GraphQL `updateRef` 将分支指向新 commit。
 
 下载流程：
 
 1. 后台线程读取远端分支 tree。
 2. 读取远端 `meta/sync.json`，并检查本地同步文件是否在上次同步后发生修改。
 3. 如果本地更新，则回主线程提示“云端过期”。
-4. 用户确认覆盖后，后台线程下载远端所有 blob 到内存。
-5. 主线程关闭当前地图。
-6. 替换本地 `config`、`saves`、`players`。
-7. 保留本地 `config/cloudsave.json`，避免下载覆盖或删除 token 配置。
-8. 将远端 `meta/sync.json` 写入本地 `config/sync.json`。
-9. 重载 Mindustry 存档状态。
+4. 用户确认覆盖后，后台线程读取远端 manifest，并重新计算本地实际同步文件 hash。
+5. 如果远端是新版 manifest，只下载新增或 hash 不同的 blob；hash 相同的本地文件保留不下载。
+6. 如果远端没有 manifest 或是旧版 `version: 1`，退回全量下载。
+7. 主线程关闭当前地图。
+8. 替换下载到的本地 `config`、`saves`、`players` 文件，并删除远端 manifest 中不存在的本地同步文件。
+9. 保留本地 `config/cloudsave.json`，避免下载覆盖或删除 token 配置。
+10. 将远端 `meta/sync.json` 写入本地 `config/sync.json`。
+11. 重载 Mindustry 存档状态。
 
 清空云端：
 
@@ -99,12 +109,19 @@ const cloud = require('bettersave/cloud/index');
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "updatedAt": "2026-07-05T12:30:00.000Z",
   "localSyncedAt": "2026-07-05T12:30:05.000Z",
   "deviceId": "device-id",
   "deviceName": "Mindustry",
-  "fileCount": 8
+  "fileCount": 8,
+  "files": {
+    "saves/example.smsf": {
+      "hash": "sha256",
+      "size": 123456,
+      "blobSha": "github-blob-sha"
+    }
+  }
 }
 ```
 
@@ -114,6 +131,9 @@ const cloud = require('bettersave/cloud/index');
 - 下载前：如果本地 `updatedAt` 大于远端 `updatedAt`，或本地同步文件在 `localSyncedAt` 后被修改，提示“云端过期”。
 - 启动时：后台只读取远端 `meta/sync.json`，只有远端 `updatedAt` 大于本地 `updatedAt` 时才弹下载提示。
 - `config/editor.json` 是地图编辑器临时文件清理状态，启动时可能被 `editor.removeFiles()` 重写，不应参与上传或本地更新时间判断。
+- `files` manifest 只记录真正同步的 `config/`、`saves/`、`players/` 文件，不记录 `meta/sync.json` 自身。
+- 旧版或缺失 `files` manifest 时必须走全量 fallback；成功上传后会写入新版 `version: 2` 元数据。
+- 玩家 `.smsf` 的 hash 必须基于清洗 token 后的上传数据；下载覆盖判断则基于本地实际文件 hash，避免强制下载时误保留本地改动。
 
 测试按钮调用 `cloud.inspectSyncAsync`。GitHub API 连通时显示“测试成功”，并展示本地存档时间、云端存档时间、本地设备、云端设备和结论；API 失败时仍显示“测试失败”。
 
@@ -149,7 +169,9 @@ function hideLoading() {
 - 不要调用 `BaseDialog.setTitle(...)`；Mindustry 的 `BaseDialog` 没有这个函数，之前已经导致过 `Cannot find function setTitle in object BaseDialog` 崩溃。
 - 如果需要把加载文字改成“正在取消”等状态，按当前约定先 `hideLoading()`，再 `showLoading(newKey)`，最后任务结束时仍然必须 `hideLoading()`。
 
-目前只有云存档设置里的“测试”按钮实现了取消：
+云存档测试、上传、下载都使用 Mindustry 原生 `loadfrag` 取消按钮。
+
+测试按钮的取消只取消当前 UI 等待，不会真正中断已经发出的 HTTP 请求：
 
 ```js
 function showCancelableTestLoading(onCancel) {
@@ -166,14 +188,21 @@ function showCancelableTestLoading(onCancel) {
 - 取消按钮只取消当前 UI 等待，不会真正中断已经发出的 HTTP 请求。
 - 后台线程结束后会回调到主线程，但 `cloudSettingDialog.js` 用 `testLoadingId` 和 `cancelled` 标记忽略过期回调，因此不会再弹“测试成功/测试失败”。
 - 连续点击测试时，旧请求返回也会被 `testLoadingId` 忽略，避免旧结果覆盖新结果。
-- 这个实现目前只用于测试按钮，不影响上传、下载、清空云端。
 
-如果以后给上传或下载也加取消，不能只隐藏 UI。上传/下载会修改本地或云端状态，必须同时设计后台取消标记，并在以下边界检查：
+上传和下载取消通过 `cloud.createCancelToken()` 实现。不能只隐藏 UI，因为上传/下载会修改本地或云端状态。取消检查边界包括：
 
 - 上传：保存本地 `cloudsave` 前、扫描本地文件前、每次创建 blob 前后、创建 tree/commit 前、updateRef 前。
 - 下载：读取远端 tree 前、每次下载 blob 前后、关闭地图前、替换本地文件前。
 - 一旦进入本地替换阶段，取消策略要非常谨慎，避免只替换了一半导致本地状态损坏。
 - 上传一旦执行到 `updateRef` 成功，云端已经整体切换到新 commit，之后只能视为上传成功或提示用户重新同步。
+
+如果以后增加上传/下载进度显示，可以复用增量同步已经计算出的传输列表：
+
+- 上传进度总数应统计需要 `createBlob` 的文件数，不应把复用 blob 的文件计入总数。
+- 下载进度总数应统计需要下载的远端 blob 数；新版 manifest 下是 changed paths 数，旧版 fallback 下是全量文件数。
+- 不建议把 `meta/sync.json` 计入用户可见的 `x/y` 文件进度；tree、commit、updateRef 可显示为“正在提交”类状态。
+- `Vars.ui.loadfrag.show(text)` 会重置内置按钮；如果通过重复 `show(...)` 更新进度，必须每次重新 `setButton(...)`，否则取消按钮会消失。
+- 进度回调必须从后台线程通过 `Core.app.post` 回主线程；取消后要忽略过期进度，避免取消界面被旧进度刷新回来。
 
 ## GitHub API 注意事项
 
@@ -207,7 +236,8 @@ function showCancelableTestLoading(onCancel) {
 - 后台线程：
   - GitHub HTTP 请求
   - 读取远端 blob
-  - 创建 blob/tree/commit
+  - 计算本地同步文件 hash
+  - 创建需要上传的 blob/tree/commit
   - 扫描本地同步文件
 
 `cloud/index.js` 中通过 `Packages.arc.util.Threads.thread` 执行后台任务，并用 `Core.app.post` 回到主线程调用 UI 回调。
@@ -300,7 +330,11 @@ rg "cloud\.writeSave|cloud\.getSave|cloud\.removeSave|cloud\.test\(" src\scripts
 4. 点击上传，确认窗口不再长时间未响应。
 5. 查看 GitHub 仓库是否出现 `config/`、`saves/`、`players/`。
 6. 确认仓库中没有 `config/cloudsave.json`。
-7. 在另一个本地环境或清空本地同步目录后测试下载。
+7. 确认 `meta/sync.json` 为 `version: 2`，并包含 `files` manifest。
+8. 第二次不修改文件直接上传，应复用未变化 blob，不应逐个重新创建所有数据文件 blob。
+9. 只修改一个备份后上传，应只新建变化文件对应的 blob。
+10. 在另一个本地环境或清空本地同步目录后测试下载。
+11. 第二次不修改文件直接下载，应不重复下载所有 blob。
 
 测试按钮取消的手动验证建议：
 
@@ -331,6 +365,6 @@ git diff --check
 3. 将 `core/save.js` 改名为 `core/saveArchive.js`。
 4. 将 `core/setting.js` 改名为 `core/settingsArchive.js`。
 5. 将 `core/player.js` 改名为 `core/playerProfiles.js`。
-6. 给 GitHub 同步增加 hash 对比，避免每次重新上传所有 blob。
+6. 给上传/下载加载界面增加传输进度，例如只统计本次需要传输的文件并显示 `1/3`。
 
 不要一次性大改全部 require。建议保留小步提交，每步都进游戏测试上传和下载。
