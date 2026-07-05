@@ -101,7 +101,7 @@ function handleCloudError(failKey, e) {
     Vars.ui.showOkText('@error', Core.bundle.get(failKey) + e.toString(), () => { });
 }
 
-function uploadCloud(force) {
+function uploadCloud(force, onSuccessExtra) {
     let cancelToken = cloud.createCancelToken();
     showCancelableLoading('cloudSave.syncingTo', cancelToken);
     cloud.uploadSavesAsync({
@@ -110,18 +110,19 @@ function uploadCloud(force) {
         onProgress: makeProgressHandler('cloudSave.syncingTo', cancelToken)
     }, () => {
         hideLoading();
+        if (onSuccessExtra) onSuccessExtra();
         Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncToSuccess", () => { });
     }, (e) => {
         handleCloudError('cloudSave.syncToFail', e);
     }, () => {
         hideLoading();
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.localExpired", () => {
-            uploadCloud(true);
+            uploadCloud(true, onSuccessExtra);
         });
     });
 }
 
-function downloadCloud(force) {
+function downloadCloud(force, onSuccessExtra) {
     let cancelToken = cloud.createCancelToken();
     showCancelableLoading('cloudSave.syncingFrom', cancelToken);
     cloud.downloadSavesAsync({
@@ -130,13 +131,14 @@ function downloadCloud(force) {
         onProgress: makeProgressHandler('cloudSave.syncingFrom', cancelToken)
     }, () => {
         hideLoading();
+        if (onSuccessExtra) onSuccessExtra();
         Vars.ui.showOkText("@cloudSave.title", "@cloudSave.syncFromSuccess", () => { });
     }, (e) => {
         handleCloudError('cloudSave.syncFromFail', e);
     }, () => {
         hideLoading();
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.remoteExpired", () => {
-            downloadCloud(true);
+            downloadCloud(true, onSuccessExtra);
         });
     });
 }
@@ -341,24 +343,24 @@ const updateSaveBtn = () => {
     }
 };
 
-exports.createUploadBtn = (parent) => {
+exports.createUploadBtn = (parent, onSuccessExtra) => {
     if (!parent) parent = cloudSaveDialog.cont;
     return parent.button("@cloudConfig.upload", Icon.upload, () => {
         if (!checkConf()) return;
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncToComfirm", () => {
             cloud.init();
-            uploadCloud(false);
+            uploadCloud(false, onSuccessExtra);
         });
     });
 };
 
-exports.createDownloadBtn = (parent) => {
+exports.createDownloadBtn = (parent, onSuccessExtra) => {
     if (!parent) parent = cloudSaveDialog.cont;
     return parent.button("@cloudConfig.download", Icon.download, () => {
         if (!checkConf()) return;
         Vars.ui.showConfirm("@cloudSave.title", "@cloudSave.syncFromComfirm", () => {
             cloud.init();
-            downloadCloud(false);
+            downloadCloud(false, onSuccessExtra);
         });
     });
 };

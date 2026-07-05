@@ -26,6 +26,11 @@ exports.init = () => {
     cloudSettingDialog.init();
     inputDialog.init();
 
+    let rebuildAfterCloudSync = () => {
+        cloud.init();
+        mainDialog.rebuild();
+    };
+
     let updateButtons = () => {
         mainDialog.dialog.buttons.clearChildren();
 
@@ -43,8 +48,8 @@ exports.init = () => {
         }).size(width, 64);
 
         if (cloud.isEnable()) {
-            cloudSettingDialog.createUploadBtn(mainDialog).size(width, 64);
-            cloudSettingDialog.createDownloadBtn(mainDialog).size(width, 64);
+            cloudSettingDialog.createUploadBtn(mainDialog, rebuildAfterCloudSync).size(width, 64);
+            cloudSettingDialog.createDownloadBtn(mainDialog, rebuildAfterCloudSync).size(width, 64);
         }
     };
 
