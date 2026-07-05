@@ -4,7 +4,7 @@
 	"description": "A Mindustry mod, featuring enhanced saving function and simpler cloud save function",
 	"subtitle": "Enhanced saving function and simpler cloud save function",
 	"author": "MTS",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"hidden": true,
 	"minGameVersion": 136,
 	"repo": "MTS/Mindustry-BetterSave"

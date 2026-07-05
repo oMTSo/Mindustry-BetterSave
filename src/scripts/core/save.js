@@ -4,11 +4,19 @@ const fs = require('bettersave/tools/file');
 const smsf = require('bettersave/core/smsf');
 const setting = require('bettersave/core/setting');
 const control = require('bettersave/core/control');
+const localSyncState = require('bettersave/cloud/localSyncState');
 
 
 exports.init = () => {
     if (!config.isInited()) config.init();
 };
+
+function isBetterSavePath(path, dir) {
+    if (path == null) return false;
+    let p = path.replace(/[\\]/g, '/');
+    let d = dir.replace(/[\\]/g, '/');
+    return p.startsWith(d + '/');
+}
 
 function makeObj(obj) {
     let ret = obj;
@@ -29,6 +37,7 @@ function makeObj(obj) {
     ret.remove = () => {
         if (ret.save.path == null) return;
         fs.removeFile(ret.save.path);
+        localSyncState.markLocalChanged();
     };
     ret.apply = () => {
         if (typeof ret.files == 'undefined') ret.readFiles();
@@ -53,6 +62,9 @@ function makeObj(obj) {
         if (typeof path == 'undefined') path = ret.save.path;
         if (path == null) print('Waring: empty path in save write.');
         fs.writeFile(path, ret.makeData());
+        if (isBetterSavePath(path, config.saveDir) || isBetterSavePath(path, config.playerDir)) {
+            localSyncState.markLocalChanged();
+        }
     };
     ret.writeToSavePath = () => {
         let path = config.saveDir + '/' + getSaveFileName(ret);

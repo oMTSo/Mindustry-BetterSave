@@ -16,7 +16,7 @@ function encodeRefName(v) {
 
 function ensureGithubProvider(conf) {
     if (conf.provider === 'gitee') {
-        throw new Error('Git Tree full sync currently supports GitHub only.');
+        throw new Error('GitHub API provider received a Gitee config.');
     }
 }
 
@@ -172,6 +172,14 @@ function findTreeBlob(tree, path) {
     return null;
 }
 
+function syncedDataPath(path) {
+    return path.startsWith('config/') || path.startsWith('saves/') || path.startsWith('players/');
+}
+
+function remoteSyncedPath(path) {
+    return syncedDataPath(path) || path === 'meta/sync.json';
+}
+
 function normalizeProgress(progress) {
     progress = progress || {};
     return {
@@ -211,6 +219,8 @@ exports.replaceBranchTree = (conf, localFiles, message, cancelToken, progress) =
     let headRef = getHeadRef(conf);
     let parentSha = headRef.object.sha;
     checkCancelled(cancelToken);
+    let commit = getCommit(conf, parentSha);
+    let remoteTree = commit.tree.sha == emptyTreeSha ? { tree: [] } : fetchRecursiveTree(conf, commit.tree.sha);
 
     let entries = [];
     for (let f of localFiles) {
@@ -233,14 +243,25 @@ exports.replaceBranchTree = (conf, localFiles, message, cancelToken, progress) =
         print('Prepared cloud file: ' + f.path);
     }
 
+    for (let item of remoteTree.tree) {
+        if (item.type !== 'blob') continue;
+        if (remoteSyncedPath(item.path)) continue;
+        entries.push({
+            path: item.path,
+            mode: item.mode || '100644',
+            type: 'blob',
+            sha: item.sha
+        });
+    }
+
     checkCancelled(cancelToken);
     let tree = createTree(conf, entries);
     checkCancelled(cancelToken);
-    let commit = createCommit(conf, message, tree.sha, parentSha);
+    let newCommit = createCommit(conf, message, tree.sha, parentSha);
     checkCancelled(cancelToken);
-    updateBranchRef(conf, commit.sha, headRef.node_id);
+    updateBranchRef(conf, newCommit.sha, headRef.node_id);
     if (cancelToken && typeof cancelToken.markCommitted == 'function') cancelToken.markCommitted();
-    return commit;
+    return newCommit;
 };
 
 exports.readBranchState = (conf, cancelToken) => {
@@ -269,6 +290,7 @@ exports.readBranchFiles = (conf, paths, cancelToken, tree, progress) => {
         checkCancelled(cancelToken);
         if (item.type !== 'blob') continue;
         if (item.path === 'meta/sync.json') continue;
+        if (!syncedDataPath(item.path)) continue;
         if (pathFilter && !pathFilter[item.path]) continue;
         let blob = fetchBlob(conf, item.sha);
         checkCancelled(cancelToken);

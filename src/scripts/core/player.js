@@ -5,6 +5,7 @@ const save = require('bettersave/core/save');
 const setting = require('bettersave/core/setting');
 const control = require('bettersave/core/control');
 const ui = require('bettersave/ui/ui');
+const localSyncState = require('bettersave/cloud/localSyncState');
 
 var currentPlayer = {
     name: '默认玩家',
@@ -49,6 +50,10 @@ function writeConfig() {
     config.writeConfig('player', obj);
 }
 
+function markLocalChanged() {
+    localSyncState.markLocalChanged();
+}
+
 function makeObj(obj) {
     let ret = JSON.parse(JSON.stringify(obj));
     ret.isCurrent = () => {
@@ -64,6 +69,7 @@ function makeObj(obj) {
         ret.name = n;
         conf.player[n].name = n;
         writeConfig();
+        markLocalChanged();
         ui.setupMultiplayer(currentPlayer.name);
     };
     ret.switchTo = () => {
@@ -84,6 +90,7 @@ function makeObj(obj) {
         current.write(currentPath);
 
         fs.removeFilesInDir(config.saveDir);
+        markLocalChanged();
 
         currentPlayer.save.path = config.playerDir + '/' + current.save.name;
         currentPlayer.save.name = current.save.name;
@@ -117,6 +124,7 @@ function makeObj(obj) {
         conf.currentName = ret.name;
 
         writeConfig();
+        markLocalChanged();
 
         currentPlayer = ret;
         ui.setupMultiplayer(currentPlayer.name);
@@ -126,8 +134,10 @@ function makeObj(obj) {
         if (!checkExist(ret)) return;
         delete conf.player[ret.name];
         writeConfig();
-        if (ret.path == null) return;
-        fs.removeFile(ret.path);
+        markLocalChanged();
+        if (ret.save.path == null) return;
+        fs.removeFile(ret.save.path);
+        markLocalChanged();
     };
     return ret;
 }
@@ -150,6 +160,7 @@ exports.add = (name) => {
         }
     };
     writeConfig();
+    markLocalChanged();
 };
 
 exports.current = () => {

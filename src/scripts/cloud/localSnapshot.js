@@ -2,6 +2,7 @@
 const config = require('bettersave/core/config');
 const save = require('bettersave/core/save');
 const fs = require('bettersave/tools/file');
+const localSyncState = require('bettersave/cloud/localSyncState');
 
 const cloudConfigFile = 'cloudsave.json';
 const syncConfigName = 'sync';
@@ -94,6 +95,7 @@ function readLocalMeta() {
         version: 2,
         updatedAt: '',
         localSyncedAt: '',
+        localDirtyAt: '',
         deviceId: makeDeviceId(),
         deviceName: 'Mindustry',
         fileCount: 0,
@@ -104,6 +106,7 @@ function readLocalMeta() {
 function writeLocalMeta(meta) {
     if (!config.isInited()) config.init();
     meta.localSyncedAt = new Date().toISOString();
+    meta.localDirtyAt = '';
     config.writeConfig(syncConfigName, meta);
 }
 
@@ -277,6 +280,7 @@ exports.makeMetaFile = (files) => {
 
 exports.readLocalMeta = readLocalMeta;
 exports.writeLocalMeta = writeLocalMeta;
+exports.markLocalChanged = localSyncState.markLocalChanged;
 exports.remoteSyncPath = remoteSyncPath;
 exports.hasFileManifest = hasFileManifest;
 exports.makeManifest = makeManifest;

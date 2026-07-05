@@ -1,9 +1,10 @@
-// 云同步入口：编排本地快照、GitHub API 和游戏重载流程。
+// 云同步入口：编排本地快照、Git API 和游戏重载流程。
 const save = require('bettersave/core/save');
 const control = require('bettersave/core/control');
 const cloudConfig = require('bettersave/cloud/cloudConfig');
 const localSnapshot = require('bettersave/cloud/localSnapshot');
 const github = require('bettersave/cloud/githubGitApi');
+const gitee = require('bettersave/cloud/giteeGitApi');
 
 exports.init = () => {
     cloudConfig.init();
@@ -25,9 +26,14 @@ exports.isEnable = () => {
 exports.testAsync = (obj, onSuccess, onError) => {
     let conf = obj || cloudConfig.read();
     runBackground(() => {
-        return github.testRepository(conf);
+        return providerApi(conf).testRepository(conf);
     }, onSuccess, onError);
 };
+
+function providerApi(conf) {
+    if (conf && conf.provider === 'gitee') return gitee;
+    return github;
+}
 
 function makeCancelError() {
     let e = new Error('Cloud sync cancelled.');
@@ -86,7 +92,7 @@ function concludeSyncState(state) {
 exports.inspectSyncAsync = (obj, onSuccess, onError) => {
     let conf = obj || cloudConfig.read();
     runBackground(() => {
-        let ok = github.testRepository(conf);
+        let ok = providerApi(conf).testRepository(conf);
         if (!ok) return { ok: false };
 
         let state = syncState(conf);
@@ -126,23 +132,26 @@ function metaTime(meta) {
 }
 
 function syncState(conf, cancelToken) {
+    let api = providerApi(conf);
     checkCancelled(cancelToken);
     let localMeta = localSnapshot.readLocalMeta();
     checkCancelled(cancelToken);
-    let remoteMeta = github.readRemoteMeta(conf, cancelToken);
+    let remoteMeta = api.readRemoteMeta(conf, cancelToken);
     checkCancelled(cancelToken);
     let localBaseTime = metaTime(localMeta);
     let localSyncedTime = metaTime({ updatedAt: localMeta.localSyncedAt });
+    let localDirtyTime = metaTime({ updatedAt: localMeta.localDirtyAt });
     let latestLocalModifiedTime = localSnapshot.latestLocalModifiedTime();
     checkCancelled(cancelToken);
-    let localChanged = latestLocalModifiedTime > localSyncedTime + 2000;
+    let localChanged = localDirtyTime > localSyncedTime + 2000 || latestLocalModifiedTime > localSyncedTime + 2000;
 
     return {
         local: localMeta,
         remote: remoteMeta,
-        localTime: localChanged ? latestLocalModifiedTime : localBaseTime,
+        localTime: localChanged ? Math.max(latestLocalModifiedTime, localDirtyTime) : localBaseTime,
         localBaseTime: localBaseTime,
         localChanged: localChanged,
+        localDirtyTime: localDirtyTime,
         latestLocalModifiedTime: latestLocalModifiedTime,
         remoteTime: metaTime(remoteMeta)
     };
@@ -188,12 +197,17 @@ function uploadProgressTotal(files) {
     return total;
 }
 
+function syncedDataPath(path) {
+    return path.startsWith('config/') || path.startsWith('saves/') || path.startsWith('players/');
+}
+
 function downloadProgressTotal(remoteState, paths) {
     if (paths) return paths.length;
     let total = 0;
     for (let item of remoteState.tree.tree) {
         if (item.type !== 'blob') continue;
         if (item.path === localSnapshot.remoteSyncPath) continue;
+        if (!syncedDataPath(item.path)) continue;
         total++;
     }
     return total;
@@ -281,7 +295,8 @@ exports.uploadSavesAsync = (options, onSuccess, onError, onConflict) => {
             checkCancelled(cancelToken);
             let localFiles = localSnapshot.collectUploadFiles(cancelToken);
             checkCancelled(cancelToken);
-            let remoteMeta = check.remoteMeta || github.readRemoteMeta(conf, cancelToken);
+            let api = providerApi(conf);
+            let remoteMeta = check.remoteMeta || api.readRemoteMeta(conf, cancelToken);
             checkCancelled(cancelToken);
             applyReusableBlobShas(localFiles, remoteMeta);
             let metaFile = localSnapshot.makeMetaFile(localFiles);
@@ -289,7 +304,7 @@ exports.uploadSavesAsync = (options, onSuccess, onError, onConflict) => {
             localFiles.push(metaFile);
             checkCancelled(cancelToken);
 
-            github.replaceBranchTree(conf, localFiles, 'Full cloud sync via bettersave', cancelToken, {
+            api.replaceBranchTree(conf, localFiles, 'Full cloud sync via bettersave', cancelToken, {
                 current: 0,
                 total: progressTotal,
                 onProgress: makeProgressReporter(onProgress, 'upload', cancelToken)
@@ -332,14 +347,15 @@ exports.downloadSavesAsync = (options, onSuccess, onError, onConflict) => {
         }
 
         checkCancelled(cancelToken);
-        let remoteState = github.readBranchState(conf, cancelToken);
+        let api = providerApi(conf);
+        let remoteState = api.readBranchState(conf, cancelToken);
         let localManifest = localSnapshot.collectLocalFileManifest(cancelToken);
         let paths = changedRemotePaths(remoteState.meta, localManifest);
         let progressTotal = downloadProgressTotal(remoteState, paths);
         checkCancelled(cancelToken);
         return {
             conflict: null,
-            remoteFiles: github.readBranchFiles(conf, paths, cancelToken, remoteState.tree, {
+            remoteFiles: api.readBranchFiles(conf, paths, cancelToken, remoteState.tree, {
                 current: 0,
                 total: progressTotal,
                 onProgress: makeProgressReporter(onProgress, 'download', cancelToken)
@@ -380,7 +396,7 @@ exports.clearCloudAsync = (onSuccess, onError) => {
     }
 
     runBackground(() => {
-        github.replaceBranchTree(conf, [], 'Clear cloud save via bettersave');
+        providerApi(conf).replaceBranchTree(conf, [], 'Clear cloud save via bettersave');
         cloudConfig.clearLastSaveTime();
         print('Cloud Clear Complete.');
         return 0;

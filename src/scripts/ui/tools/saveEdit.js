@@ -6,6 +6,7 @@ const fs = require('bettersave/tools/file');
 const maps = require('bettersave/core/map');
 const ui = require("bettersave/ui/ui");
 const setting = require('bettersave/core/setting');
+const localSyncState = require('bettersave/cloud/localSyncState');
 
 var saveEditDialog = null;
 
@@ -132,6 +133,7 @@ exports.init = (parents) => {
             target.files[currentEditingFile.index].data = data;
         } else {
             fs.writeFile(currentEditingFile.path, data);
+            localSyncState.markLocalChanged();
         }
         modified = true;
     });

@@ -10,7 +10,7 @@ BetterSave 是一个 Mindustry 脚本模组，运行在 Mindustry 的 JavaScript
 
 - 在游戏内创建、恢复、编辑和删除本地 `.smsf` 存档备份。
 - 管理多个本地玩家档案，并在不同档案间切换。
-- 使用 GitHub 仓库作为云存档后端。
+- 使用 GitHub 或 Gitee 仓库作为云存档后端。
 - 云同步保持“覆盖式同步”语义：上传是本地覆盖云端，下载是云端覆盖本地。
 - 传输层使用文件 hash 做增量传输，减少手机等慢设备上的重复上传和下载。
 - 在 UI 中提供测试、上传、下载、清空云端、取消和进度显示。
@@ -55,13 +55,13 @@ Vars.saveDirectory/../betterSave/tmp       临时文件
 重要配置文件：
 
 ```text
-betterSave/config/cloudsave.json   云同步配置，包含 GitHub token，只能保留在本地
+betterSave/config/cloudsave.json   云同步配置，包含云存档 token，只能保留在本地
 betterSave/config/sync.json        本地同步元数据
 betterSave/config/editor.json      地图编辑器临时文件清理状态
 betterSave/config/player.json      多玩家档案状态
 ```
 
-`cloudsave.json`、`sync.json`、`editor.json` 不参与云端同步。`cloudsave.json` 包含 token，绝不能上传到 GitHub。
+`cloudsave.json`、`sync.json`、`editor.json` 不参与云端同步。`cloudsave.json` 包含 token，绝不能上传到云端仓库。
 
 ## 启动流程
 
@@ -139,7 +139,7 @@ cloud.isCancelled(e);
 }
 ```
 
-`provider: 'gitee'` 目前只保留 UI 入口，Git Tree 全量覆盖流程实际只支持 GitHub。
+`provider` 目前支持 `github` 和 `gitee`，由 `cloud/index.js` 分发到对应 Git API provider。
 
 ### `cloud/localSnapshot.js`
 
@@ -191,6 +191,33 @@ GET  /repos/{owner}/{repo}/git/blobs/{sha}
 - 处理 Git 空 tree：`4b825dc642cb6eb9a060e54bf8d69288fbee4904`。
 
 不要引入 `DELETE` 或 `PATCH` 作为核心同步依赖。Mindustry/Arc/Rhino 环境对这些请求方法兼容性较差。
+
+### `cloud/giteeGitApi.js`
+
+Gitee API 封装层。
+
+使用的 Gitee API：
+
+```text
+GET  /v5/repos/{owner}/{repo}
+GET  /v5/repos/{owner}/{repo}/branches/{branch}
+GET  /v5/repos/{owner}/{repo}/commits/{sha}
+GET  /v5/repos/{owner}/{repo}/git/trees/{sha}?recursive=1
+GET  /v5/repos/{owner}/{repo}/git/blobs/{sha}
+POST /v5/repos/{owner}/{repo}/commits
+```
+
+职责：
+
+- 测试仓库和分支是否可访问。
+- 读取远端 tree、blob 和 `meta/sync.json`。
+- 下载时按路径读取需要的 blob，并跳过 `meta/sync.json`。
+- 上传时读取远端 tree，对同步路径生成 `create`、`update`、`delete` actions。
+- 用一次 `POST /commits` 提交多文件变更，模拟覆盖式同步。
+- 按 Git blob SHA 规则为本地上传数据计算 `blobSha`，写入 `meta/sync.json`，供后续增量复用。
+- 清空云端时只删除 `config/`、`saves/`、`players/` 和 `meta/sync.json`，不会处理仓库中的其他文件。
+
+Gitee 没有使用 GitHub 的 `createBlob/createTree/updateRef` 流程，因此上传进度表示“准备提交的新增或变化数据文件数”。真正提交 commit 是一个整体 POST 请求，无法继续提供逐文件网络进度。
 
 ### `core/config.js`
 
@@ -371,7 +398,7 @@ UI 注册入口。
 - 编辑 token、owner、repo、branch。
 - 启用/禁用云存档。
 - 保存配置。
-- 测试 GitHub 连接并显示同步状态。
+- 按当前 provider 测试 GitHub/Gitee 连接并显示同步状态。
 - 上传、下载、清空云端。
 - 测试、上传、下载使用原生 `loadfrag` 取消按钮。
 - 上传和下载加载界面显示传输进度，例如 `正在上传到云存档 1/3`。
@@ -413,7 +440,7 @@ saveEdit.js   存档地图编辑对话框
 上传：
 
 - 本地当前同步内容是最终结果。
-- 云端没有出现在本地同步内容中的文件会被删除。
+- 云端 BetterSave 同步路径中没有出现在本地同步内容里的文件会被删除。
 - 未变化文件会复用远端 Git blob，减少上传请求。
 
 下载：
@@ -443,6 +470,7 @@ saveEdit.js   存档地图编辑对话框
   "version": 2,
   "updatedAt": "2026-07-05T12:30:00.000Z",
   "localSyncedAt": "2026-07-05T12:30:05.000Z",
+  "localDirtyAt": "",
   "deviceId": "device-id",
   "deviceName": "Mindustry",
   "fileCount": 8,
@@ -450,7 +478,7 @@ saveEdit.js   存档地图编辑对话框
     "saves/example.smsf": {
       "hash": "sha256",
       "size": 123456,
-      "blobSha": "github-blob-sha"
+      "blobSha": "git-blob-sha"
     }
   }
 }
@@ -461,19 +489,20 @@ saveEdit.js   存档地图编辑对话框
 - `version`：同步元数据格式版本。
 - `updatedAt`：云端同步内容更新时间，用于判断远端是否比本地同步基准新。
 - `localSyncedAt`：本地写入同步状态的时间，用于判断本地文件是否在上次同步后被修改。
+- `localDirtyAt`：本地专用变更标记，用于记录删除、重命名、清空目录等文件 mtime 扫描无法发现的本地变化；上传或下载成功后清空。
 - `deviceId`：本地设备 ID。
 - `deviceName`：设备名称，目前默认 `Mindustry`。
 - `fileCount`：同步数据文件数量，不包含 `meta/sync.json` 自身。
 - `files`：同步文件 manifest，只包含 `config/`、`saves/`、`players/` 下真正参与同步的文件。
 - `hash`：文件 SHA-256。
 - `size`：文件大小。
-- `blobSha`：GitHub blob SHA，用于上传时复用未变化文件。
+- `blobSha`：Git blob SHA，用于上传时复用未变化文件。
 
 兼容规则：
 
 - 远端没有 `meta/sync.json`：按空云端处理。
 - 远端是旧版 `version: 1` 或没有 `files`：下载走全量 fallback；上传成功后写入新版 `version: 2`。
-- 清空云端后，分支指向 Git 空 tree；下一次上传无法复用 blob，会全量上传。
+- 清空云端后，`meta/sync.json` 和同步数据路径会被删除；下一次上传无法复用 manifest，会全量上传同步数据。
 - `meta/sync.json` 自身不写入 `files` manifest，避免元数据描述自己导致 hash 不稳定。
 
 ## 冲突判断
@@ -486,7 +515,7 @@ saveEdit.js   存档地图编辑对话框
 下载前：
 
 - 如果本地 `updatedAt` 大于远端 `updatedAt`，提示“云端过期”。
-- 如果本地同步文件在 `localSyncedAt` 后被修改，也提示“云端过期”。
+- 如果本地同步文件在 `localSyncedAt` 后被修改，或 `localDirtyAt` 晚于 `localSyncedAt`，也提示“云端过期”。
 - 用户确认后可以强制下载，本地会被云端覆盖。
 
 启动时：
@@ -517,22 +546,21 @@ saveEdit.js   存档地图编辑对话框
 8. 对清洗后的数据计算 SHA-256。
 9. 读取远端 `meta/sync.json`。
 10. 同路径 hash 一致且远端有 `blobSha` 时复用 blob。
-11. 只有新增或变化文件调用 `createBlob`。
-12. 每成功创建一个实际数据 blob，回调上传进度。
+11. GitHub 只有新增或变化文件调用 `createBlob`；Gitee 只有新增或变化文件进入 commit actions。
+12. GitHub 每成功创建一个实际数据 blob 后回调上传进度；Gitee 在准备好本次 commit actions 后按变化数据文件回调上传进度。
 13. 生成新版 `meta/sync.json`。
-14. 创建完整 tree。
-15. 创建 commit。
-16. GraphQL `updateRef` 将分支切到新 commit。
+14. GitHub 创建完整 tree 和 commit，并用 GraphQL `updateRef` 将分支切到新 commit。
+15. Gitee 通过一次 `POST /commits` 提交 create/update/delete actions。
 17. 写入本地 `config/sync.json`。
 18. 更新云配置中的 `lastSaveTime`。
 19. 回主线程显示上传成功。
 
 上传进度规则：
 
-- 总数只统计本次需要 `createBlob` 的同步数据文件。
+- 总数只统计本次需要传输或提交变化的同步数据文件。
 - 复用 blob 的文件不计入总数。
 - `meta/sync.json` 不计入用户可见进度。
-- 如果总数为 0，加载文字不显示 `0/0`，只显示上传状态；tree/commit/updateRef 仍会执行。
+- 如果总数为 0，加载文字不显示 `0/0`，只显示上传状态；tree/commit/updateRef 或 Gitee 提交阶段仍可能执行。
 
 ## 下载流程
 
@@ -565,7 +593,7 @@ saveEdit.js   存档地图编辑对话框
 
 ## 清空云端流程
 
-清空云端会创建一棵空 tree，并通过 commit 和 `updateRef` 将目标分支指向该 tree。
+清空云端会删除 BetterSave 管理的云端路径：`config/`、`saves/`、`players/` 和 `meta/sync.json`。仓库中的其他文件会保留。
 
 注意：
 
@@ -599,12 +627,13 @@ saveEdit.js   存档地图编辑对话框
   - 扫描本地文件前后。
   - 每次创建 blob 前后。
   - 创建 tree/commit 前。
-  - `updateRef` 前。
+  - GitHub `updateRef` 前。
+  - Gitee `POST /commits` 前。
   - 读取远端 tree 前。
   - 每次下载 blob 前后。
   - 关闭地图前。
   - 替换本地文件前。
-- 上传一旦 `updateRef` 成功，云端已经切到新 commit，之后不再把取消视为失败。
+- 上传一旦 GitHub `updateRef` 成功或 Gitee `POST /commits` 成功，云端已经切到新 commit，之后不再把取消视为失败。
 
 ## 进度模型
 
@@ -619,6 +648,11 @@ saveEdit.js   存档地图编辑对话框
 `cloud/githubGitApi.js` 负责：
 
 - 上传时在实际 `createBlob` 成功后递增。
+- 下载时在实际 blob 下载完成后递增。
+
+`cloud/giteeGitApi.js` 负责：
+
+- 上传时在准备本次 commit actions 后按新增或变化数据文件递增。
 - 下载时在实际 blob 下载完成后递增。
 
 UI 负责：
@@ -637,7 +671,7 @@ Downloading from cloud 1/3
 
 ## 敏感配置和安全边界
 
-GitHub token 存在：
+云存档 token 存在：
 
 ```text
 betterSave/config/cloudsave.json
@@ -687,9 +721,9 @@ Mindustry 设置菜单：
 
 后台线程：
 
-- GitHub HTTP 请求。
+- GitHub/Gitee HTTP 请求。
 - 读取远端 tree/blob/meta。
-- 创建 blob/tree/commit/updateRef。
+- 创建 blob/tree/commit/updateRef，或 Gitee commit actions。
 - 扫描本地同步文件。
 - 清洗玩家 `.smsf`。
 - 计算 SHA-256。
@@ -723,7 +757,7 @@ git diff --check
 
 手动验证建议：
 
-1. 配置 GitHub token、owner、repo、branch。
+1. 配置 GitHub 或 Gitee token、owner、repo、branch，并确认 provider 选择正确。
 2. 点击测试，确认能显示本地/云端时间、设备和结论。
 3. 第一次上传，确认仓库出现 `config/`、`saves/`、`players/`、`meta/sync.json`。
 4. 确认仓库中没有 `config/cloudsave.json`。
@@ -732,12 +766,12 @@ git diff --check
 7. 修改一个备份后上传，确认只显示少量上传进度。
 8. 在另一个环境首次下载，确认可以恢复本地状态。
 9. 第二次不修改文件下载，确认不会重复下载全部 blob。
-10. 清空云端后再次上传，确认能全量上传，不再出现空 tree 读取失败。
+10. 清空云端后再次上传，确认能全量上传，不再出现空 tree 读取失败，且仓库非同步文件不会被删除。
 11. 上传和下载过程中点击取消，确认加载层关闭或显示取消中，并且旧回调不会再弹成功/失败。
 
 ## 已知约束
 
-- 云同步只支持 GitHub。Gitee UI 入口仍保留，但同步流程不支持。
+- 云同步支持 GitHub 和 Gitee，但两者底层写入方式不同，Gitee 提交阶段不能提供真实逐文件网络进度。
 - 同步是覆盖式，不做自动合并。
 - 第一次同步、清空云端后的下一次上传、旧版 meta fallback 都需要全量传输。
 - 上传和下载进度只统计实际传输文件，不统计 tree/commit/updateRef 阶段。
@@ -754,7 +788,7 @@ git diff --check
 4. 将 `core/setting.js` 改名为 `core/settingsArchive.js`。
 5. 将 `core/player.js` 改名为 `core/playerProfiles.js`。
 6. 给同步状态增加更清晰的设备名称设置。
-7. 增加更细粒度的错误提示和 GitHub API 错误解释。
+7. 增加更细粒度的错误提示和 GitHub/Gitee API 错误解释。
 8. 如果未来支持其他 Git 服务，先抽象 Git 后端接口，再适配服务差异。
 
 重构建议小步提交。涉及云同步、存档替换、token 过滤的改动，每一步都应进游戏验证上传和下载。
